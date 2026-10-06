@@ -38,7 +38,8 @@ async def s(migrated):
     db.sessionmaker.cache_clear()
     async with db.session() as session:
         await session.execute(text(
-            "TRUNCATE account, conversation, contact, identity, message, attachment, sync_state "
+            "TRUNCATE account, conversation, contact, identity, message, attachment, sync_state, "
+            "policy_rule "
             "RESTART IDENTITY CASCADE"))
         await session.commit()
         yield session

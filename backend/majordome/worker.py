@@ -8,8 +8,26 @@ import uvicorn
 from majordome.config import settings
 from majordome.ingest.imap import ImapIngester, load_accounts
 from majordome.ingest.matrix import AppserviceIngester
+from majordome.policy.apply import purge_expired
+from majordome.store import db
 
 log = logging.getLogger("majordome.worker")
+
+RETENTION_INTERVAL_S = 3600
+
+
+async def retention_loop() -> None:
+    """Delete messages whose retention period (set by policy rules) has passed."""
+    while True:
+        try:
+            async with db.session() as s:
+                n = await purge_expired(s)
+                await s.commit()
+            if n:
+                log.info("retention: deleted %d expired message(s)", n)
+        except Exception:
+            log.exception("retention purge failed")
+        await asyncio.sleep(RETENTION_INTERVAL_S)
 
 
 async def main() -> None:
@@ -28,6 +46,7 @@ async def main() -> None:
         tasks.append(asyncio.create_task(ImapIngester(cfg, acc).run(), name=f"imap:{acc.name}"))
     if not tasks:
         raise SystemExit("nothing to ingest")
+    tasks.append(asyncio.create_task(retention_loop(), name="retention"))
     log.info("running %s", ", ".join(t.get_name() for t in tasks))
     await asyncio.gather(*tasks)
 

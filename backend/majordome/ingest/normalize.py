@@ -1,7 +1,8 @@
 """Source-independent message representation, and the single entry point that stores it.
 
 Every ingester (matrix, imap, android) converts what it receives into `NormalizedMessage`
-and calls `store_message`. Policy (M2) and dedup (M5) will hook in here.
+and calls `store_message`, which applies the user's policy rules before anything is stored.
+Dedup (M5) will hook in here too.
 """
 
 from dataclasses import dataclass, field
@@ -12,6 +13,8 @@ from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from majordome.policy.apply import apply_decision, load_rules
+from majordome.policy.engine import Facts, resolve
 from majordome.store.models import Account, Attachment, Conversation, Identity, Message
 
 
@@ -93,10 +96,24 @@ async def upsert_identity(s: AsyncSession, ref: SenderRef) -> int:
 
 
 async def store_message(s: AsyncSession, msg: NormalizedMessage) -> int | None:
-    """Insert a message. Returns its id, or None if it was already stored (idempotent)."""
+    """Apply policy and insert a message. Returns its id, or None if it was already stored
+    (idempotent) or the policy says not to keep it."""
     account_id = await upsert_account(s, msg.account)
     conversation_id = await upsert_conversation(s, account_id, msg.conversation)
     sender_id = await upsert_identity(s, msg.sender) if msg.sender else None
+
+    decision = resolve(await load_rules(s), Facts(
+        source=msg.account.source, account_id=account_id, conversation_id=conversation_id,
+        conversation_kind=msg.conversation.kind,
+        sender=msg.sender.external_id if msg.sender else None,
+        subject=msg.subject, body=msg.body_text, has_attachment=bool(msg.attachments),
+    ))
+    if decision.storage == "drop":
+        return None
+    shaped = Message(subject=msg.subject, body_text=msg.body_text, raw=msg.raw,
+                     sent_at=msg.sent_at)
+    apply_decision(shaped, decision)
+    attachments = msg.attachments if decision.storage == "store" else []
 
     stmt = (
         insert(Message)
@@ -104,7 +121,9 @@ async def store_message(s: AsyncSession, msg: NormalizedMessage) -> int | None:
             account_id=account_id, conversation_id=conversation_id,
             sender_identity_id=sender_id, direction=msg.direction,
             external_id=msg.external_id, ingest_channel=msg.ingest_channel,
-            sent_at=msg.sent_at, subject=msg.subject, body_text=msg.body_text, raw=msg.raw,
+            sent_at=msg.sent_at, subject=shaped.subject, body_text=shaped.body_text,
+            raw=shaped.raw, body_agent=shaped.body_agent, visibility=shaped.visibility,
+            expires_at=shaped.expires_at, policy=shaped.policy,
         )
         .on_conflict_do_nothing(index_elements=["account_id", "external_id"])
         .returning(Message.id)
@@ -113,7 +132,7 @@ async def store_message(s: AsyncSession, msg: NormalizedMessage) -> int | None:
     if message_id is None:
         return None
 
-    for a in msg.attachments:
+    for a in attachments:
         s.add(Attachment(message_id=message_id, filename=a.filename, mime_type=a.mime_type,
                          size=a.size, external_ref=a.external_ref))
     await s.execute(

@@ -98,8 +98,12 @@ class Message(Base):
     )
     subject: Mapped[str | None] = mapped_column(Text)
     body_text: Mapped[str | None] = mapped_column(Text)
-    # Redacted text: the only version an LLM will ever see. Filled by the policy engine (M2).
+    # Redacted text: the only version an LLM will ever see (None: the agent may not see it).
     body_agent: Mapped[str | None] = mapped_column(Text)
+    # Policy outcome (see majordome/policy): agent visibility, expiry, and the "why" record.
+    visibility: Mapped[str] = mapped_column(String(24), default="always", server_default="always")
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    policy: Mapped[dict[str, Any]] = mapped_column(default=dict, server_default="{}")
     raw: Mapped[dict[str, Any]] = mapped_column(default=dict)
     edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -116,6 +120,22 @@ class Message(Base):
     account: Mapped[Account] = relationship()
     sender: Mapped[Identity | None] = relationship()
     attachments: Mapped[list["Attachment"]] = relationship(back_populates="message")
+
+
+class PolicyRule(Base):
+    """A user-defined rule: `matchers` (when) -> `outcomes` (then). See majordome/policy."""
+
+    __tablename__ = "policy_rule"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(Text)
+    enabled: Mapped[bool] = mapped_column(default=True, server_default="true")
+    matchers: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    outcomes: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class Attachment(Base):
