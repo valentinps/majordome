@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     matrix_as_token: str = ""
     matrix_hs_token: str = ""
     matrix_appservice_port: int = 8009
+    bridge_status_token: str = ""  # shared secret in the bridges' status_endpoint URL
     # Bridge bots and ghosts: the appservice namespace, and who room state is read as.
     matrix_bridge_users: str = (
         r"^@(whatsappbot|discordbot|whatsapp_[^:]+|discord_[^:]+):majordome\.internal$"

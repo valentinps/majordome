@@ -7,12 +7,17 @@ cd "$(dirname "$0")/.."
 source .env
 
 ADMIN="@${MATRIX_USER}:${SERVER_NAME}"
+grep -q "^BRIDGE_STATUS_TOKEN=" .env || echo "BRIDGE_STATUS_TOKEN=$(openssl rand -hex 24)" >> .env
+source .env
+# Bridges report their connection state to the Majordome worker (shown in the UI).
+STATUS="http://majordome-worker:8009/bridge-status"
 yq() { docker run --rm -i -u 0 -v "$PWD/data:/data" mikefarah/yq:4 "$@"; }
 
 # --- WhatsApp (bridgev2 config layout) ---
 yq -i "
   .homeserver.address = \"http://synapse:8008\" |
   .homeserver.domain = \"${SERVER_NAME}\" |
+  .homeserver.status_endpoint = \"${STATUS}/whatsapp?token=${BRIDGE_STATUS_TOKEN}\" |
   .appservice.address = \"http://mautrix-whatsapp:29318\" |
   .appservice.hostname = \"0.0.0.0\" |
   .database.type = \"postgres\" |
@@ -27,6 +32,7 @@ yq -i "
 yq -i "
   .homeserver.address = \"http://synapse:8008\" |
   .homeserver.domain = \"${SERVER_NAME}\" |
+  .homeserver.status_endpoint = \"${STATUS}/discord?token=${BRIDGE_STATUS_TOKEN}\" |
   .appservice.address = \"http://mautrix-discord:29334\" |
   .appservice.hostname = \"0.0.0.0\" |
   .appservice.database.type = \"postgres\" |

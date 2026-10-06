@@ -85,8 +85,16 @@ export interface ApplyStats {
 
 export interface Account { id: number; source: string; name: string; external_id: string }
 
+export interface BridgeHealth {
+  name: string
+  status: 'ok' | 'warn' | 'error' | 'unknown'
+  label: string
+  detail?: string | null
+}
+
 export interface Health {
   ingesters: { key: string; updated_at: string }[]
+  bridges: BridgeHealth[]
   message_counts: Record<string, number>
 }
 

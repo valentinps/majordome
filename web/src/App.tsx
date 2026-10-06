@@ -434,30 +434,44 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
+const DOT: Record<string, string> = {
+  ok: 'bg-[#4f9a6b]', warn: 'bg-[#d9b25c]', error: 'bg-[#d98a6c]', unknown: 'bg-[var(--livery-muted)]',
+}
+
 function Status({ health }: { health: Health | null }) {
   if (!health) return null
   const now = Date.now()
+  const lines = [
+    ...health.bridges.map((b) => ({
+      key: b.name, name: SOURCE_LABEL[b.name] ?? b.name, status: b.status,
+      note: b.status === 'ok' ? null : b.label, detail: b.detail,
+    })),
+    ...health.ingesters.map((i) => {
+      const stale = now - new Date(i.updated_at).getTime() > STALE_MS
+      return { key: i.key, name: ingesterLabel(i.key), status: stale ? 'error' : 'ok',
+        note: stale ? 'Not syncing' : null, detail: null }
+    }),
+  ]
   return (
     <section aria-label="Connections" className="max-md:hidden">
       <h2 className="mx-2.5 mb-1.5 text-sm text-[var(--livery-muted)]">Connections</h2>
-      <ul className="grid gap-1 px-2.5">
-        {health.ingesters.map((i) => {
-          const stale = now - new Date(i.updated_at).getTime() > STALE_MS
-          return (
-            <li key={i.key} className={`flex items-center gap-2 text-sm [overflow-wrap:anywhere] ${stale ? 'text-[#f2c3b2]' : ''}`}>
-              <span aria-hidden="true" className={`size-[7px] shrink-0 rounded-full ${stale ? 'bg-[#d98a6c]' : 'bg-[#4f9a6b]'}`} />
-              <span>{ingesterLabel(i.key)}</span>
-              <span className="sr-only">{stale ? 'not syncing' : 'syncing'}</span>
-            </li>
-          )
-        })}
+      <ul className="grid gap-1.5 px-2.5">
+        {lines.map((l) => (
+          <li key={l.key} className="text-sm [overflow-wrap:anywhere]" title={l.detail ?? undefined}>
+            <span className="flex items-center gap-2">
+              <span aria-hidden="true" className={`size-[7px] shrink-0 rounded-full ${DOT[l.status]}`} />
+              <span>{l.name}</span>
+              {!l.note && <span className="sr-only">connected</span>}
+            </span>
+            {l.note && <span className="ml-[15px] block text-xs text-[#f2c3b2]">{l.note}</span>}
+          </li>
+        ))}
       </ul>
     </section>
   )
 }
 
 function ingesterLabel(key: string): string {
-  if (key === 'matrix.appservice') return 'Chats (WhatsApp, Discord)'
   const m = key.match(/^imap\.(.+)\.([^.]+)$/)
   return m ? m[1] : key
 }

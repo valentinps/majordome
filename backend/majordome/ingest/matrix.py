@@ -25,6 +25,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from majordome.config import Settings
+from majordome.ingest import bridge_status
 from majordome.ingest.normalize import (
     AccountRef,
     AttachmentRef,
@@ -360,7 +361,25 @@ class AppserviceIngester:
                 return JSONResponse({"errcode": "M_FORBIDDEN"}, status_code=403)
             return JSONResponse({})
 
+        async def bridge_state(request: Request) -> JSONResponse:
+            # Bridges report their connection state here (homeserver.status_endpoint).
+            token = request.query_params.get("token", "")
+            if not self.cfg.bridge_status_token or not hmac.compare_digest(
+                    token.encode(), self.cfg.bridge_status_token.encode()):
+                return JSONResponse({"errcode": "M_FORBIDDEN"}, status_code=403)
+            bridge = request.path_params["bridge"]
+            if bridge not in ("whatsapp", "discord"):
+                return JSONResponse({"errcode": "M_NOT_FOUND"}, status_code=404)
+            payload = await request.json()
+            key = f"bridge.{bridge}"
+            async with db.session() as s:
+                merged = bridge_status.merge(await db.get_state(s, key) or {}, payload)
+                await db.set_state(s, key, merged)
+                await s.commit()
+            return JSONResponse({})
+
         return Starlette(routes=[
+            Route("/bridge-status/{bridge}", bridge_state, methods=["POST"]),
             Route("/_matrix/app/v1/transactions/{txn_id}", transactions, methods=["PUT"]),
             Route("/transactions/{txn_id}", transactions, methods=["PUT"]),
             Route("/_matrix/app/v1/ping", ping, methods=["POST"]),

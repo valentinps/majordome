@@ -98,6 +98,7 @@ services:
       # Passive appservice (see backend/majordome/ingest/matrix.py): no user login at all.
       MAJORDOME_MATRIX_AS_TOKEN: ${MAJORDOME_AS_TOKEN:?}
       MAJORDOME_MATRIX_HS_TOKEN: ${MAJORDOME_HS_TOKEN:?}
+      MAJORDOME_BRIDGE_STATUS_TOKEN: ${BRIDGE_STATUS_TOKEN:?}
     volumes:
       - ./secrets/email:/run/secrets/email:ro
       - ./data/majordome/oauth:/var/lib/majordome/oauth

@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from majordome.config import settings
+from majordome.ingest import bridge_status
 from majordome.policy.apply import reapply
 from majordome.policy.engine import Rule, validate
 from majordome.policy.redact import BUILTIN
@@ -199,13 +200,16 @@ async def list_conversations(s: Session, limit: int = Query(100, le=500)) -> dic
 @app.get("/api/health", dependencies=[Auth])
 async def health(s: Session) -> dict:
     rows = (await s.scalars(select(SyncState).where(
-        SyncState.key.not_in(["matrix.self_ghosts"])))).all()
+        SyncState.key.like("imap.%")))).all()
+    bridges = (await s.scalars(select(SyncState).where(SyncState.key.like("bridge.%")))).all()
     counts = dict((await s.execute(
         select(Account.source, func.count(Message.id))
         .join(Message, Message.account_id == Account.id).group_by(Account.source)
     )).all())
     return {
         "ingesters": [{"key": r.key, "updated_at": r.updated_at.isoformat()} for r in rows],
+        "bridges": [{"name": b.key.removeprefix("bridge."), **bridge_status.summarize(b.value)}
+                    for b in sorted(bridges, key=lambda b: b.key)],
         "message_counts": counts,
     }
 
