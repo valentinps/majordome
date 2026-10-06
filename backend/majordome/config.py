@@ -22,12 +22,12 @@ class Settings(BaseSettings):
     )
 
     # Email accounts definition (JSON list) and OAuth token storage.
-    email_accounts_file: Path = Path("/run/secrets/email.json")
+    email_accounts_file: Path = Path("/run/secrets/email/accounts.json")
     oauth_token_dir: Path = Path("/var/lib/majordome/oauth")
 
     # Web UI
     ui_password_hash: str = ""  # argon2 hash; overrides the file below when set
-    ui_password_hash_file: Path = Path("/run/secrets/ui_password_hash")  # `majordome set-password`
+    ui_password_hash_file: Path = Path("/run/secrets/ui/password_hash")  # `majordome set-password`
     session_secret: str = ""
     session_max_age_s: int = 7 * 24 * 3600
     web_dist: Path = Path("/app/web")

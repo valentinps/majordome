@@ -79,7 +79,8 @@ services:
     depends_on:
       majordome-migrate: { condition: service_completed_successfully }
     volumes:
-      - ./secrets/majordome/ui_password_hash:/run/secrets/ui_password_hash:ro
+      # Directories, not single files: the CLI replaces files atomically (new inode).
+      - ./secrets/ui:/run/secrets/ui:ro
     ports:
       - "127.0.0.1:${MAJORDOME_PORT:-8787}:8080"
       - "${TAILSCALE_IP:?}:${MAJORDOME_PORT:-8787}:8080"
@@ -96,7 +97,7 @@ services:
       MAJORDOME_MATRIX_USER: ${MATRIX_USER}
       MAJORDOME_MATRIX_PASSWORD: ${MATRIX_PASSWORD:?}
     volumes:
-      - ./secrets/majordome/email.json:/run/secrets/email.json:ro
+      - ./secrets/email:/run/secrets/email:ro
       - ./data/majordome/oauth:/var/lib/majordome/oauth
 
   # Admin CLI: docker compose run --rm cli set-password | add-email | email-auth <address>
@@ -107,7 +108,8 @@ services:
     depends_on: []
     entrypoint: ["majordome"]
     volumes:
-      - ./secrets/majordome:/run/secrets
+      - ./secrets/ui:/run/secrets/ui
+      - ./secrets/email:/run/secrets/email
       - ./data/majordome/oauth:/var/lib/majordome/oauth
 
   # --- LLM provider sandbox (claude_code provider; personal/dev use) ---
