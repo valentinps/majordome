@@ -1,0 +1,86 @@
+@import "tailwindcss";
+@import "@heroui/styles";
+
+/* Majordome house livery mapped onto HeroUI theme variables:
+   bottle-green rail, brass accent, cool sage-grey ground. */
+
+:root {
+  --background: #eef0ec;
+  --foreground: #1d2b26;
+  --surface: #f8f9f6;
+  --surface-secondary: #e9ede8;
+  --muted: #5f6e67;
+  --border: #d5dbd5;
+  --accent: #8a6a2a;
+  --accent-foreground: #fffaf0;
+  --focus: #9a7630;
+  --field-background: #f8f9f6;
+  --radius: 0.375rem;
+
+  --livery: #24453a;
+  --livery-ink: #e6ede8;
+  --livery-muted: #a9bdb3;
+  --tag-whatsapp: #dcebe0;
+  --tag-discord: #e2e3f1;
+  --tag-email: #f0e6cf;
+
+  --font-body: 'Atkinson Hyperlegible', system-ui, sans-serif;
+  --font-display: 'Bricolage Grotesque Variable', 'Atkinson Hyperlegible', sans-serif;
+}
+
+.dark {
+  --background: #121a17;
+  --foreground: #e3e8e4;
+  --surface: #18221e;
+  --surface-secondary: #1f2b26;
+  --muted: #93a39b;
+  --border: #2a3832;
+  --accent: #c9a55a;
+  --accent-foreground: #1b1408;
+  --focus: #c9a55a;
+  --field-background: #18221e;
+
+  --livery: #1b3329;
+  --livery-ink: #e3ece6;
+  --livery-muted: #8fa89b;
+  --tag-whatsapp: #22392b;
+  --tag-discord: #2a2c40;
+  --tag-email: #3a3120;
+}
+
+html, body, #root { height: 100%; }
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+.wordmark {
+  font-family: var(--font-display);
+  font-weight: 760;
+  letter-spacing: -0.035em;
+  line-height: 1;
+}
+
+.font-display { font-family: var(--font-display); }
+
+.tag-whatsapp { background: var(--tag-whatsapp); }
+.tag-discord { background: var(--tag-discord); }
+.tag-email { background: var(--tag-email); }
+
+/* Rail sources: brass bar marks the selected source. */
+.rail [role='option'] { color: var(--livery-muted); }
+.rail [role='option']:hover { color: var(--livery-ink); background: rgb(255 255 255 / 0.06); }
+.rail [role='option'][aria-selected='true'] {
+  color: var(--livery-ink);
+  background: rgb(255 255 255 / 0.08);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+/* Timeline rows */
+.timeline [role='option'][aria-selected='true'] {
+  background: var(--surface-secondary);
+  box-shadow: inset 3px 0 0 var(--accent);
+}

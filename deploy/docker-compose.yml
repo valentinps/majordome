@@ -57,6 +57,59 @@ services:
       - ./data/discord:/data
     networks: [internal]
 
+  # --- Majordome application ---
+  majordome-migrate:
+    <<: &majordome
+      image: majordome:latest
+      build: { context: "${MAJORDOME_SRC:-..}" }
+      restart: unless-stopped
+      depends_on:
+        postgres: { condition: service_healthy }
+      environment:
+        MAJORDOME_DATABASE_URL: postgresql+asyncpg://majordome:${MAJORDOME_DB_PASSWORD}@postgres/majordome
+        MAJORDOME_SESSION_SECRET: ${MAJORDOME_SESSION_SECRET:?}
+        MAJORDOME_MATRIX_SERVER_NAME: ${SERVER_NAME}
+        MAJORDOME_MATRIX_USER: ${MATRIX_USER}
+      networks: [internal]
+    restart: "no"
+    command: ["alembic", "upgrade", "head"]
+
+  majordome-api:
+    <<: *majordome
+    depends_on:
+      majordome-migrate: { condition: service_completed_successfully }
+    volumes:
+      - ./secrets/majordome/ui_password_hash:/run/secrets/ui_password_hash:ro
+    ports:
+      - "127.0.0.1:8080:8080"
+      - "${TAILSCALE_IP:?}:8080:8080"
+
+  majordome-worker:
+    <<: *majordome
+    depends_on:
+      majordome-migrate: { condition: service_completed_successfully }
+    command: ["python", "-m", "majordome.worker"]
+    environment:
+      MAJORDOME_DATABASE_URL: postgresql+asyncpg://majordome:${MAJORDOME_DB_PASSWORD}@postgres/majordome
+      MAJORDOME_SESSION_SECRET: ${MAJORDOME_SESSION_SECRET:?}
+      MAJORDOME_MATRIX_SERVER_NAME: ${SERVER_NAME}
+      MAJORDOME_MATRIX_USER: ${MATRIX_USER}
+      MAJORDOME_MATRIX_PASSWORD: ${MATRIX_PASSWORD:?}
+    volumes:
+      - ./secrets/majordome/email.json:/run/secrets/email.json:ro
+      - ./data/majordome/oauth:/var/lib/majordome/oauth
+
+  # Admin CLI: docker compose run --rm cli set-password | add-email | email-auth <address>
+  cli:
+    <<: *majordome
+    restart: "no"
+    profiles: [cli]
+    depends_on: []
+    entrypoint: ["majordome"]
+    volumes:
+      - ./secrets/majordome:/run/secrets
+      - ./data/majordome/oauth:/var/lib/majordome/oauth
+
   # --- LLM provider sandbox (claude_code provider; personal/dev use) ---
   llm-proxy:
     image: ubuntu/squid:latest

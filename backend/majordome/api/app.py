@@ -1,5 +1,6 @@
 """HTTP API and web UI host. Single user, password login, signed session cookie."""
 
+import asyncio
 from datetime import datetime
 from typing import Annotated, Any
 
@@ -65,13 +66,22 @@ class LoginIn(BaseModel):
     password: str
 
 
+def _password_hash() -> str:
+    cfg = settings()
+    if cfg.ui_password_hash:
+        return cfg.ui_password_hash
+    f = cfg.ui_password_hash_file
+    return f.read_text().strip() if f.exists() else ""
+
+
 @app.post("/api/login")
 async def login(body: LoginIn, response: Response) -> dict:
-    h = settings().ui_password_hash
+    h = _password_hash()
     try:
         if not h or not PasswordHasher().verify(h, body.password):
             raise VerificationError
     except VerificationError as e:
+        await asyncio.sleep(1)  # slow down guessing
         raise HTTPException(401, "wrong password") from e
     response.set_cookie(COOKIE, _serializer().dumps({"u": "me"}), httponly=True,
                         samesite="strict", max_age=settings().session_max_age_s)
