@@ -21,4 +21,6 @@ ENV CLAUDE_CONFIG_DIR=/home/node/.claude-isolated \
     HTTP_PROXY=http://llm-proxy:3128
 
 COPY --chown=node:node spike.sh /home/node/spike.sh
-CMD ["sleep", "infinity"]
+COPY --chown=node:node gateway.mjs /home/node/gateway.mjs
+# Narrow HTTP gateway for the worker (see gateway.mjs); reachable only on the llm-rpc network.
+CMD ["node", "/home/node/gateway.mjs"]

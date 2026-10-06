@@ -99,8 +99,12 @@ services:
       MAJORDOME_MATRIX_AS_TOKEN: ${MAJORDOME_AS_TOKEN:?}
       MAJORDOME_MATRIX_HS_TOKEN: ${MAJORDOME_HS_TOKEN:?}
       MAJORDOME_BRIDGE_STATUS_TOKEN: ${BRIDGE_STATUS_TOKEN:?}
+      MAJORDOME_LLM_GATEWAY_URL: http://llm:8100
+      MAJORDOME_LLM_GATEWAY_TOKEN: ${LLM_GATEWAY_TOKEN:?}
+    networks: [internal, llm-rpc]
     volumes:
       - ./secrets/email:/run/secrets/email:ro
+      - ./secrets/notify:/run/secrets/notify:ro
       - ./data/majordome/oauth:/var/lib/majordome/oauth
 
   # Admin CLI: docker compose run --rm cli set-password | add-email | email-auth <address>
@@ -113,6 +117,7 @@ services:
     volumes:
       - ./secrets/ui:/run/secrets/ui
       - ./secrets/email:/run/secrets/email
+      - ./secrets/notify:/run/secrets/notify
       - ./data/majordome/oauth:/var/lib/majordome/oauth
 
   # --- LLM provider sandbox (claude_code provider; personal/dev use) ---
@@ -122,12 +127,13 @@ services:
     volumes:
       - ./proxy/squid.conf:/etc/squid/squid.conf:ro
     networks: [llm, egress]
-    profiles: [llm]
 
   llm:
     build: ./llm
     restart: unless-stopped
     env_file: [./secrets/llm.env]   # CLAUDE_CODE_OAUTH_TOKEN=...
+    environment:
+      GATEWAY_TOKEN: ${LLM_GATEWAY_TOKEN:?}
     read_only: true
     tmpfs:
       - /tmp
@@ -135,8 +141,7 @@ services:
       - /home/node/work:uid=1000,gid=1000
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
-    networks: [llm]
-    profiles: [llm]
+    networks: [llm, llm-rpc]
 
 networks:
   internal:
@@ -144,5 +149,8 @@ networks:
   llm:
     name: majordome-llm
     internal: true        # no route to the internet; only llm-proxy is reachable
+  llm-rpc:
+    name: majordome-llm-rpc
+    internal: true        # worker <-> llm gateway only
   egress:
     name: majordome-egress
