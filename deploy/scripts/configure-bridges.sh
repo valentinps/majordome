@@ -19,6 +19,7 @@ yq -i "
   .database.uri = \"postgres://mautrix_whatsapp:${WHATSAPP_DB_PASSWORD}@postgres/mautrix_whatsapp?sslmode=disable\" |
   .bridge.permissions = {\"${ADMIN}\": \"admin\"} |
   .network.send_presence_on_typing = false |
+  .network.displayname_template = "{{or .BusinessName .PushName .Phone .RedactedPhone \"Unknown user\"}}" |
   .encryption.allow = false | .encryption.default = false | .encryption.require = false
 " /data/whatsapp/config.yaml
 

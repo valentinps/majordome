@@ -136,3 +136,48 @@ def test_skips_bridge_notices_non_portals_and_other_events():
     mgmt = room_info_from_state("!m:x", [member(ME), member(BOT)], ME)
     assert interpret_event(mgmt, ev({"msgtype": "m.text", "body": "x"}), ME) is None
     assert interpret_event(dm_room(), ev({"key": "👍"}, etype="m.reaction"), ME) is None
+
+
+# --- bridgev2 rooms (shape observed on a real mautrix-whatsapp deployment) ------------------
+
+SELF = "@whatsapp_lid-41699871080509:majordome.internal"
+CONTACT = "@whatsapp_lid-42030784893169:majordome.internal"
+
+
+def wa_dm_room():
+    return room_info_from_state("!wa:x", [
+        {"type": "m.bridge", "state_key": "majordome.internal/whatsapp", "content": {
+            "bridgebot": BOT, "protocol": {"id": "whatsapp"},
+            "channel": {"id": "42030784893169@lid", "displayname": "Valentin",
+                        "fi.mau.receiver": "33769661108"},
+            "com.beeper.room_type": "dm", "com.beeper.room_type.v2": "dm"}},
+        member(ME), member(BOT), member(SELF, "+33769661108"), member(CONTACT, "Valentin"),
+    ], ME)
+
+
+def test_bridgev2_dm_with_own_ghost_is_a_dm():
+    room = wa_dm_room()
+    assert room.kind == "dm" and room.title == "Valentin"
+    assert room.self_ghosts == {SELF}
+    assert room.account().external_id == f"{BOT}/33769661108"
+
+
+def test_own_ghost_messages_are_outgoing():
+    room = wa_dm_room()
+    out = interpret_event(room, ev({"msgtype": "m.text", "body": "hi"}, sender=SELF), ME)
+    inc = interpret_event(room, ev({"msgtype": "m.text", "body": "yo"}, sender=CONTACT), ME)
+    assert out.direction == "out" and inc.direction == "in"
+    # In groups the own ghost is only known from other rooms:
+    group = room_info_from_state("!g:x", [bridge_state(), member(ME), member(SELF), member(ALICE),
+                                          member(BOB)], ME)
+    msg = interpret_event(group, ev({"msgtype": "m.text", "body": "x"}, sender=SELF), ME,
+                          frozenset({SELF}))
+    assert msg.direction == "out"
+
+
+def test_personal_filtering_space_is_not_a_portal():
+    space = room_info_from_state("!s:x", [{"type": "m.bridge", "state_key": "", "content": {
+        "bridgebot": BOT, "protocol": {"id": "whatsapp"},
+        "channel": {"id": "__personal_filtering_space__"},
+        "com.beeper.room_type.v2": "personal_filtering_space"}}, member(ME)], ME)
+    assert not space.is_portal

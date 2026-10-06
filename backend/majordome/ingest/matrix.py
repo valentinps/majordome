@@ -108,6 +108,8 @@ class RoomInfo:
     members: dict[str, str | None]  # mxid -> display name
     protocol: dict[str, Any] | None = None
     channel: dict[str, Any] | None = None
+    receiver: str | None = None  # bridge login the room belongs to (multi-account bridges)
+    self_ghosts: frozenset[str] = frozenset()  # ghosts that represent the user themselves
 
     @property
     def is_portal(self) -> bool:
@@ -115,7 +117,8 @@ class RoomInfo:
 
     def account(self) -> AccountRef:
         assert self.source and self.bridgebot
-        return AccountRef(self.source, self.bridgebot, SOURCE_NAMES.get(self.source, self.source))
+        external_id = f"{self.bridgebot}/{self.receiver}" if self.receiver else self.bridgebot
+        return AccountRef(self.source, external_id, SOURCE_NAMES.get(self.source, self.source))
 
 
 def room_info_from_state(room_id: str, state: list[dict[str, Any]], own_mxid: str) -> RoomInfo:
@@ -133,22 +136,37 @@ def room_info_from_state(room_id: str, state: list[dict[str, Any]], own_mxid: st
     }
     bridgebot = bridge.get("bridgebot")
     protocol = bridge.get("protocol") or {}
+    channel = bridge.get("channel") or {}
     source = PROTOCOL_SOURCES.get(protocol.get("id", ""), protocol.get("id")) if bridge else None
+    # Newer (bridgev2) bridges state the room type explicitly; older ones need a heuristic.
+    room_type = bridge.get("com.beeper.room_type.v2") or bridge.get("com.beeper.room_type")
 
     others = [m for m in members if m not in (own_mxid, bridgebot)]
+    self_ghosts: frozenset[str] = frozenset()
+    contact = others[0] if len(others) == 1 else None
+    if room_type == "dm" and len(others) > 1:
+        # The user's own ghost joins DMs too; the contact is the ghost named after the channel.
+        channel_local = str(channel.get("id", "")).split("@")[0]
+        contact = next((m for m in others if channel_local and channel_local in m), None)
+        if contact:
+            self_ghosts = frozenset(m for m in others if m != contact)
+
     name = (by_type.get("m.room.name") or [{}])[0].get("content", {}).get("name")
-    if not name and len(others) == 1:
-        name = members[others[0]]
+    if not name and contact:
+        name = members[contact]
+    is_dm = room_type == "dm" if room_type else len(others) <= 1
     return RoomInfo(
         room_id=room_id,
         source=source,
         bridgebot=bridgebot,
         title=name,
-        kind="dm" if len(others) <= 1 else "group",
-        is_space=create.get("type") == "m.space",
+        kind="dm" if is_dm else "group",
+        is_space=create.get("type") == "m.space" or room_type == "personal_filtering_space",
         members=members,
         protocol=protocol or None,
-        channel=bridge.get("channel"),
+        channel=channel or None,
+        receiver=channel.get("fi.mau.receiver"),
+        self_ghosts=self_ghosts,
     )
 
 
@@ -172,9 +190,13 @@ def _ts(event: dict[str, Any]) -> datetime:
     return datetime.fromtimestamp(event["origin_server_ts"] / 1000, tz=UTC)
 
 
-def interpret_event(room: RoomInfo, event: dict[str, Any],
-                    own_mxid: str) -> NormalizedMessage | Edit | Redaction | None:
-    """Turn one timeline event of a portal room into something to store (or None to skip)."""
+def interpret_event(room: RoomInfo, event: dict[str, Any], own_mxid: str,
+                    self_ids: frozenset[str] = frozenset()
+                    ) -> NormalizedMessage | Edit | Redaction | None:
+    """Turn one timeline event of a portal room into something to store (or None to skip).
+
+    `self_ids`: the user's own ghosts learnt from other rooms (groups don't reveal them).
+    """
     if not room.is_portal or event.get("sender") == room.bridgebot:
         return None  # bridge status notices are not messages
 
@@ -217,7 +239,7 @@ def interpret_event(room: RoomInfo, event: dict[str, Any],
         ingest_channel="matrix",
         sent_at=_ts(event),
         body_text=body or None,
-        direction="out" if sender == own_mxid else "in",
+        direction="out" if sender == own_mxid or sender in room.self_ghosts | self_ids else "in",
         raw={"event": event},
         attachments=attachments,
     )
@@ -242,6 +264,7 @@ SYNC_FILTER = {
 class MatrixIngester:
     STATE_AUTH = "matrix.auth"
     STATE_SYNC = "matrix.sync"
+    STATE_SELF = "matrix.self_ghosts"
 
     def __init__(self, cfg: Settings, client: MatrixClient | None = None):
         self.cfg = cfg
@@ -249,9 +272,11 @@ class MatrixIngester:
         self.client = client or MatrixClient(cfg.matrix_homeserver)
         self.trusted_inviters = re.compile(cfg.matrix_trusted_inviters)
         self.rooms: dict[str, RoomInfo] = {}
+        self.self_ghosts: set[str] = set()
 
     async def _ensure_login(self) -> None:
         async with db.session() as s:
+            self.self_ghosts |= set((await db.get_state(s, self.STATE_SELF) or {}).get("ids", []))
             auth = await db.get_state(s, self.STATE_AUTH)
             if auth:
                 self.client.token = auth["access_token"]
@@ -264,7 +289,13 @@ class MatrixIngester:
     async def _room(self, room_id: str, refresh: bool = False) -> RoomInfo:
         if refresh or room_id not in self.rooms:
             state = await self.client.request("GET", f"/_matrix/client/v3/rooms/{q(room_id)}/state")
-            self.rooms[room_id] = room_info_from_state(room_id, state, self.own_mxid)
+            info = room_info_from_state(room_id, state, self.own_mxid)
+            self.rooms[room_id] = info
+            if not info.self_ghosts <= self.self_ghosts:
+                self.self_ghosts |= info.self_ghosts
+                async with db.session() as s:
+                    await db.set_state(s, self.STATE_SELF, {"ids": sorted(self.self_ghosts)})
+                    await s.commit()
         return self.rooms[room_id]
 
     async def _handle_invites(self, invites: dict[str, Any]) -> None:
@@ -313,7 +344,7 @@ class MatrixIngester:
                 if initial:
                     continue  # history starts "from now"
                 for ev in data.get("timeline", {}).get("events", []):
-                    item = interpret_event(room, ev, self.own_mxid)
+                    item = interpret_event(room, ev, self.own_mxid, frozenset(self.self_ghosts))
                     if item is not None:
                         await self._apply(s, room, item)
             # Checkpoint in the same transaction as the messages: exactly-once ingestion.
