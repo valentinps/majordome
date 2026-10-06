@@ -120,6 +120,7 @@ class Message(Base):
     account: Mapped[Account] = relationship()
     sender: Mapped[Identity | None] = relationship()
     attachments: Mapped[list["Attachment"]] = relationship(back_populates="message")
+    triage: Mapped["TriageResult | None"] = relationship(viewonly=True, uselist=False)
 
 
 class PolicyRule(Base):
@@ -149,6 +150,60 @@ class Attachment(Base):
     external_ref: Mapped[str | None] = mapped_column(Text)  # mxc:// url, email part id
 
     message: Mapped[Message] = relationship(back_populates="attachments")
+
+
+class LlmCall(Base):
+    """Audit log of every LLM call: what was sent (ids, size), what came back, cost."""
+
+    __tablename__ = "llm_call"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
+                                         index=True)
+    purpose: Mapped[str] = mapped_column(String(32))  # triage, query, watcher, ...
+    provider: Mapped[str] = mapped_column(String(32))
+    model: Mapped[str | None] = mapped_column(Text)
+    message_ids: Mapped[list[int]] = mapped_column(JSONB, default=list)
+    input_chars: Mapped[int] = mapped_column(default=0)
+    output: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    error: Mapped[str | None] = mapped_column(Text)
+    duration_ms: Mapped[int | None] = mapped_column()
+    usage: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+
+
+class TriageResult(Base):
+    """The triage agent's structured verdict for one message."""
+
+    __tablename__ = "triage_result"
+
+    message_id: Mapped[int] = mapped_column(ForeignKey("message.id", ondelete="CASCADE"),
+                                            primary_key=True)
+    category: Mapped[str] = mapped_column(String(24))
+    scam_risk: Mapped[float] = mapped_column()
+    importance: Mapped[str] = mapped_column(String(16))  # interrupt, digest, silent
+    summary: Mapped[str] = mapped_column(Text)  # sanitized
+    reason: Mapped[str] = mapped_column(Text)  # sanitized
+    model: Mapped[str | None] = mapped_column(Text)
+    llm_call_id: Mapped[int | None] = mapped_column(ForeignKey("llm_call.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Notification(Base):
+    """Something Majordome told the user about (or will, in a digest)."""
+
+    __tablename__ = "notification"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    message_id: Mapped[int | None] = mapped_column(ForeignKey("message.id", ondelete="CASCADE"),
+                                                   index=True)
+    kind: Mapped[str] = mapped_column(String(24))  # important, scam_warning
+    text: Mapped[str] = mapped_column(Text)  # exactly what was sent, built by our code
+    delivery: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)  # channel -> result
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
+                                                 index=True)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    message: Mapped[Message | None] = relationship()
 
 
 class SyncState(Base):

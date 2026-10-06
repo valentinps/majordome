@@ -39,7 +39,7 @@ async def s(migrated):
     async with db.session() as session:
         await session.execute(text(
             "TRUNCATE account, conversation, contact, identity, message, attachment, sync_state, "
-            "policy_rule "
+            "policy_rule, llm_call, triage_result, notification "
             "RESTART IDENTITY CASCADE"))
         await session.commit()
         yield session

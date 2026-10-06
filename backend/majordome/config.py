@@ -28,6 +28,22 @@ class Settings(BaseSettings):
     email_accounts_file: Path = Path("/run/secrets/email/accounts.json")
     oauth_token_dir: Path = Path("/var/lib/majordome/oauth")
 
+    # LLM gateway (sandboxed Claude Code, see deploy/llm/gateway.mjs)
+    llm_gateway_url: str = "http://llm:8100"
+    llm_gateway_token: str = ""
+
+    # Triage agent
+    triage_enabled: bool = True
+    triage_interval_s: int = 60  # how often pending messages are batched (lower = more real-time)
+    triage_batch_size: int = 15
+    triage_model: str = "haiku"
+    triage_max_age_h: int = 48  # older pending messages are not triaged (no stale alerts)
+    scam_threshold: float = 0.8
+
+    # Notifications
+    discord_webhook_file: Path = Path("/run/secrets/notify/discord_webhook")
+    ui_url: str = ""  # e.g. http://majordome-srv:8787, used for links in notifications
+
     # Web UI
     ui_password_hash: str = ""  # argon2 hash; overrides the file below when set
     ui_password_hash_file: Path = Path("/run/secrets/ui/password_hash")  # `majordome set-password`

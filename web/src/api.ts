@@ -16,6 +16,24 @@ export interface MessageSummary {
   edited: boolean
   deleted: boolean
   visibility?: Visibility
+  triage?: TriageInfo | null
+}
+
+export interface TriageInfo {
+  category: string
+  scam_risk: number
+  importance: 'interrupt' | 'digest' | 'silent'
+  summary: string
+  reason: string
+}
+
+export interface Alert {
+  id: number
+  kind: 'important' | 'scam_warning'
+  created_at: string
+  read: boolean
+  delivery: Record<string, string>
+  message: MessageSummary | null
 }
 
 export type Visibility = 'always' | 'on_request' | 'on_request_approval' | 'never'
@@ -93,6 +111,7 @@ export interface BridgeHealth {
 }
 
 export interface Health {
+  unread_alerts: number
   ingesters: { key: string; updated_at: string }[]
   bridges: BridgeHealth[]
   message_counts: Record<string, number>
@@ -141,6 +160,8 @@ export const api = {
     call<{ rule: Rule; applied: ApplyStats }>(`/api/rules/${id}`, json('PUT', draft)),
   deleteRule: (id: number) => call<{ applied: ApplyStats }>(`/api/rules/${id}`, { method: 'DELETE' }),
   accounts: () => call<{ accounts: Account[] }>('/api/accounts'),
+  alerts: () => call<{ notifications: Alert[] }>('/api/notifications'),
+  markAlertsRead: (ids?: number[]) => call<{ updated: number }>('/api/notifications/read', json('POST', { ids: ids ?? null })),
   defaults: () => call<{ visibility: Visibility }>('/api/policy/defaults'),
   setDefaults: (visibility: Visibility) =>
     call<{ visibility: Visibility; applied: ApplyStats }>('/api/policy/defaults', json('PUT', { visibility })),

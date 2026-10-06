@@ -15,7 +15,7 @@ import {
   TextField,
 } from '@heroui/react'
 import { api, Unauthorized } from './api'
-import type { Health, MessageDetail, MessageSummary, Rule, RuleDraft, Source } from './api'
+import type { Alert as AlertItem, Health, MessageDetail, MessageSummary, Rule, RuleDraft, Source, TriageInfo } from './api'
 import { EMPTY_DRAFT, RuleEditor, RulesPage, VISIBILITY_TEXT, draftFromMessage } from './Rules'
 
 const ALL = 'all'
@@ -92,10 +92,13 @@ function Inbox({ onSignedOut }: { onSignedOut: () => void }) {
   const [messages, setMessages] = useState<MessageSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [exhausted, setExhausted] = useState(false)
-  const [selected, setSelected] = useState<number | null>(null)
+  const [selected, setSelected] = useState<number | null>(() => {
+    const m = Number(new URLSearchParams(window.location.search).get('m'))
+    return Number.isInteger(m) && m > 0 ? m : null
+  })
   const [health, setHealth] = useState<Health | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [view, setView] = useState<'inbox' | 'rules'>('inbox')
+  const [view, setView] = useState<'inbox' | 'rules' | 'alerts'>('inbox')
   const [editor, setEditor] = useState<{ rule: Rule | null; initial: RuleDraft } | null>(null)
   const [rulesVersion, setRulesVersion] = useState(0)
   const [notice, setNotice] = useState<string | null>(null)
@@ -159,7 +162,7 @@ function Inbox({ onSignedOut }: { onSignedOut: () => void }) {
         md:flex-col md:flex-nowrap md:items-stretch md:gap-7 md:overflow-y-auto md:px-3.5 md:py-6 ${reading ? 'max-md:hidden' : ''}`}>
         <h1 className="wordmark px-2.5 text-2xl md:text-[1.75rem]">Majordome</h1>
         <ListBox aria-label="Sources" selectionMode="single"
-          selectedKeys={view === 'rules' ? [] : [source]}
+          selectedKeys={view === 'inbox' ? [source] : []}
           onSelectionChange={(keys) => { const k = [...keys][0]; if (k) { setSource(String(k)); setSelected(null); setView('inbox') } }}
           className="flex gap-1 overflow-x-auto bg-transparent p-0 md:grid md:gap-0.5">
           {SOURCES.map((s) => (
@@ -170,13 +173,22 @@ function Inbox({ onSignedOut }: { onSignedOut: () => void }) {
             </ListBox.Item>
           ))}
         </ListBox>
-        <button type="button" aria-current={view === 'rules' ? 'page' : undefined}
-          onClick={() => setView((v) => (v === 'rules' ? 'inbox' : 'rules'))}
-          className={`rounded-md px-2.5 py-1.5 text-left hover:text-[var(--livery-ink)] ${view === 'rules'
-            ? 'bg-white/10 text-[var(--livery-ink)] shadow-[inset_3px_0_0_var(--accent)]'
-            : 'text-[var(--livery-muted)]'}`}>
-          Rules
-        </button>
+        <nav aria-label="Majordome" className="flex gap-1 md:grid md:gap-0.5">
+          {([['alerts', 'Alerts'], ['rules', 'Rules']] as const).map(([id, label]) => (
+            <button key={id} type="button" aria-current={view === id ? 'page' : undefined}
+              onClick={() => setView((v) => (v === id ? 'inbox' : id))}
+              className={`flex justify-between gap-4 rounded-md px-2.5 py-1.5 text-left hover:text-[var(--livery-ink)] ${view === id
+                ? 'bg-white/10 text-[var(--livery-ink)] shadow-[inset_3px_0_0_var(--accent)]'
+                : 'text-[var(--livery-muted)]'}`}>
+              <span>{label}</span>
+              {id === 'alerts' && !!health?.unread_alerts && (
+                <span className="rounded-full bg-[var(--accent)] px-1.5 text-xs font-bold text-[var(--accent-foreground)]">
+                  {health.unread_alerts}<span className="sr-only"> unread</span>
+                </span>
+              )}
+            </button>
+          ))}
+        </nav>
         <Status health={health} />
         <Button variant="ghost" size="sm" onPress={() => { api.logout().finally(onSignedOut) }}
           className="mt-auto self-start text-[var(--livery-muted)] max-md:hidden">
@@ -186,7 +198,7 @@ function Inbox({ onSignedOut }: { onSignedOut: () => void }) {
 
       {/* Timeline */}
       <section aria-label="Messages"
-        className={`timeline flex-1 overflow-y-auto border-[var(--border)] pb-6 md:border-r ${reading ? 'max-lg:hidden' : ''} ${view === 'rules' ? 'hidden' : ''}`}>
+        className={`timeline flex-1 overflow-y-auto border-[var(--border)] pb-6 md:border-r ${reading ? 'max-lg:hidden' : ''} ${view !== 'inbox' ? 'hidden' : ''}`}>
         <form role="search" className="sticky top-0 z-10 bg-[var(--background)] p-4"
           onSubmit={(e) => { e.preventDefault(); setAppliedQuery(query.trim()) }}>
           <SearchField aria-label="Search messages" value={query} fullWidth
@@ -241,6 +253,13 @@ function Inbox({ onSignedOut }: { onSignedOut: () => void }) {
           onMakeRule={(m) => openEditor(null, draftFromMessage(m))}
           className={reading ? 'flex-1' : 'max-lg:hidden'} />
       )}
+      {view === 'alerts' && (
+        <div className="flex flex-1 lg:col-span-2">
+          <AlertsPage onError={handle} version={health?.unread_alerts ?? 0}
+            onOpen={(id) => { setSelected(id); setView('inbox') }}
+            onChanged={() => api.health().then(setHealth).catch(() => {})} />
+        </div>
+      )}
       {view === 'rules' && (
         <div className="flex flex-1 lg:col-span-2">
           <RulesPage onError={handle} onEdit={(r) => openEditor(r)} version={rulesVersion}
@@ -287,6 +306,7 @@ function MessageRow({ m }: { m: MessageSummary }) {
       <span className="flex min-w-0 items-center gap-2 text-xs text-[var(--muted)]">
         <SourceChip source={m.source} account={m.account} />
         {m.conversation_kind !== 'dm' && m.conversation && <span className="truncate">{m.conversation}</span>}
+        <TriageMark t={m.triage} />
         {m.visibility && m.visibility !== 'always' && (
           <span className="ml-auto shrink-0">{VISIBILITY_TEXT[m.visibility].short}</span>
         )}
@@ -366,6 +386,7 @@ function Reader({ id, onBack, onError, onMakeRule, className, version }: {
             </ul>
           )}
 
+          {m.triage && <TriagePanel t={m.triage} />}
           <PolicyPanel m={m} onMakeRule={() => onMakeRule(m)} />
 
           {m.edits.length > 0 && (
@@ -389,6 +410,117 @@ function Reader({ id, onBack, onError, onMakeRule, className, version }: {
       )}
     </article>
   )
+}
+
+const CATEGORY_TEXT: Record<string, string> = {
+  personal: 'Personal', work: 'Work', transactional: 'Orders, bills and accounts', newsletter: 'Newsletter or promotion',
+  notification: 'Automated notification', spam: 'Spam', scam: 'Scam', other: 'Other',
+}
+const IMPORTANCE_TEXT: Record<string, string> = {
+  interrupt: 'Important: you were notified', digest: 'Worth reading today', silent: 'No need to read',
+}
+
+function isScam(t: TriageInfo): boolean {
+  return t.category === 'scam' || t.scam_risk >= 0.8
+}
+
+function TriageMark({ t }: { t?: TriageInfo | null }) {
+  if (!t) return null
+  if (isScam(t)) return <span className="shrink-0 font-bold text-[var(--danger)]">Likely scam</span>
+  if (t.importance === 'interrupt') return <span className="shrink-0 font-bold text-[var(--accent)]">Important</span>
+  return null
+}
+
+function TriagePanel({ t }: { t: TriageInfo }) {
+  const scam = isScam(t)
+  return (
+    <section aria-label="Majordome's assessment"
+      className={`mt-8 rounded-lg border p-4 ${scam ? 'border-[var(--danger)]' : 'border-[var(--border)]'}`}>
+      {scam && (
+        <p className="mb-2 font-bold text-[var(--danger)]">
+          This looks like a scam. Don't click its links, reply, or share codes or payment details.
+        </p>
+      )}
+      <p>{t.summary}</p>
+      <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+        <dt className="text-[var(--muted)]">Kind</dt><dd>{CATEGORY_TEXT[t.category] ?? t.category}</dd>
+        <dt className="text-[var(--muted)]">Priority</dt><dd>{IMPORTANCE_TEXT[t.importance] ?? t.importance}</dd>
+        <dt className="text-[var(--muted)]">Scam risk</dt><dd>{Math.round(t.scam_risk * 100)}%</dd>
+        <dt className="text-[var(--muted)]">Why</dt><dd>{t.reason}</dd>
+      </dl>
+    </section>
+  )
+}
+
+function AlertsPage({ onOpen, onError, onChanged, version }: {
+  onOpen: (messageId: number) => void; onError: (e: unknown) => void; onChanged: () => void; version: number
+}) {
+  const [alerts, setAlerts] = useState<AlertItem[] | null>(null)
+
+  const load = useCallback(() => {
+    api.alerts().then((r) => setAlerts(r.notifications)).catch(onError)
+  }, [onError])
+  useEffect(() => { load() }, [load, version])
+
+  async function markAll() {
+    try { await api.markAlertsRead(); load(); onChanged() } catch (e) { onError(e) }
+  }
+
+  async function open(a: AlertItem) {
+    if (!a.message) return
+    if (!a.read) api.markAlertsRead([a.id]).then(onChanged).catch(() => {})
+    onOpen(a.message.id)
+  }
+
+  return (
+    <section aria-labelledby="alerts-title" className="flex-1 overflow-y-auto px-4 py-6 md:px-10 md:py-8">
+      <div className="max-w-[72ch]">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+          <h2 id="alerts-title" className="font-display text-3xl font-bold tracking-tight">Alerts</h2>
+          {alerts?.some((a) => !a.read) && <Button variant="secondary" size="sm" onPress={markAll}>Mark all as read</Button>}
+        </div>
+        <p className="mb-6 text-[var(--muted)]">
+          Messages Majordome thought you should see right away. Only messages the agent may read are assessed.
+        </p>
+        {alerts === null && <Spinner />}
+        {alerts?.length === 0 && <p className="text-[var(--muted)]">No alerts yet.</p>}
+        <ul className="grid gap-2">
+          {alerts?.map((a) => (
+            <li key={a.id}>
+              <button type="button" onClick={() => open(a)} disabled={!a.message}
+                className={`w-full rounded-lg border p-3 text-left hover:bg-[var(--surface-secondary)] ${a.kind === 'scam_warning'
+                  ? 'border-[var(--danger)]' : 'border-[var(--border)]'} ${a.read ? 'opacity-70' : ''}`}>
+                <span className="flex flex-wrap items-baseline justify-between gap-2">
+                  <span className="font-bold">
+                    {!a.read && <span aria-hidden="true" className="mr-2 inline-block size-2 rounded-full bg-[var(--accent)]" />}
+                    {a.kind === 'scam_warning' ? 'Likely scam: ' : ''}{a.message?.sender ?? 'Deleted message'}
+                    {!a.read && <span className="sr-only"> (unread)</span>}
+                  </span>
+                  <time dateTime={a.created_at} className="text-sm text-[var(--muted)]">{new Date(a.created_at).toLocaleString()}</time>
+                </span>
+                {a.message && (
+                  <span className="mt-1 block text-sm text-[var(--muted)]">
+                    {SOURCE_LABEL[a.message.source] ?? a.message.source}
+                    {a.message.conversation_kind !== 'dm' && a.message.conversation ? `, ${a.message.conversation}` : ''}
+                  </span>
+                )}
+                <span className="mt-1 block">{a.message?.triage?.summary}</span>
+                <span className="mt-1 block text-xs text-[var(--muted)]">{deliveryText(a.delivery)}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  )
+}
+
+function deliveryText(d: Record<string, string>): string {
+  const discord = d.discord
+  if (!discord) return 'Not sent yet'
+  if (discord === 'sent') return 'Sent to Discord'
+  if (discord === 'not configured') return 'Shown here only: no Discord webhook is set'
+  return `Discord delivery failed (${discord.replace(/^error: /, '')})`
 }
 
 function PolicyPanel({ m, onMakeRule }: { m: MessageDetail; onMakeRule: () => void }) {

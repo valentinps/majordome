@@ -101,6 +101,7 @@ services:
       MAJORDOME_BRIDGE_STATUS_TOKEN: ${BRIDGE_STATUS_TOKEN:?}
       MAJORDOME_LLM_GATEWAY_URL: http://llm:8100
       MAJORDOME_LLM_GATEWAY_TOKEN: ${LLM_GATEWAY_TOKEN:?}
+      MAJORDOME_UI_URL: http://${TAILSCALE_IP}:${MAJORDOME_PORT:-8787}
     networks: [internal, llm-rpc]
     volumes:
       - ./secrets/email:/run/secrets/email:ro
@@ -114,6 +115,11 @@ services:
     profiles: [cli]
     depends_on: []
     entrypoint: ["majordome"]
+    environment:
+      MAJORDOME_DATABASE_URL: postgresql+asyncpg://majordome:${MAJORDOME_DB_PASSWORD}@postgres/majordome
+      MAJORDOME_LLM_GATEWAY_URL: http://llm:8100
+      MAJORDOME_LLM_GATEWAY_TOKEN: ${LLM_GATEWAY_TOKEN:?}
+    networks: [internal, llm-rpc]
     volumes:
       - ./secrets/ui:/run/secrets/ui
       - ./secrets/email:/run/secrets/email

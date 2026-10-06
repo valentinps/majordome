@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 from pydantic import BaseModel
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -21,7 +21,15 @@ from majordome.policy.apply import load_defaults, reapply, save_defaults
 from majordome.policy.engine import Rule, validate
 from majordome.policy.redact import BUILTIN
 from majordome.store import db
-from majordome.store.models import Account, Conversation, Identity, Message, PolicyRule, SyncState
+from majordome.store.models import (
+    Account,
+    Conversation,
+    Identity,
+    Message,
+    Notification,
+    PolicyRule,
+    SyncState,
+)
 
 COOKIE = "majordome_session"
 CSP = ("default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
@@ -121,6 +129,9 @@ def _message_summary(m: Message) -> dict[str, Any]:
         "edited": m.edited_at is not None,
         "deleted": m.deleted_at is not None,
         "visibility": m.visibility,
+        "triage": {"category": m.triage.category, "scam_risk": m.triage.scam_risk,
+                   "importance": m.triage.importance, "summary": m.triage.summary,
+                   "reason": m.triage.reason} if m.triage else None,
     }
 
 
@@ -138,7 +149,8 @@ async def list_messages(
         select(Message)
         .join(Account, Account.id == Message.account_id)
         .options(selectinload(Message.account), selectinload(Message.conversation),
-                 selectinload(Message.sender), selectinload(Message.attachments))
+                 selectinload(Message.sender), selectinload(Message.attachments),
+                 selectinload(Message.triage))
     )
     if q:
         stmt = stmt.where(
@@ -161,7 +173,8 @@ async def get_message(message_id: int, s: Session) -> dict:
     m = await s.scalar(
         select(Message).where(Message.id == message_id)
         .options(selectinload(Message.account), selectinload(Message.conversation),
-                 selectinload(Message.sender), selectinload(Message.attachments))
+                 selectinload(Message.sender), selectinload(Message.attachments),
+                 selectinload(Message.triage))
     )
     if m is None:
         raise HTTPException(404)
@@ -206,12 +219,49 @@ async def health(s: Session) -> dict:
         select(Account.source, func.count(Message.id))
         .join(Message, Message.account_id == Account.id).group_by(Account.source)
     )).all())
+    unread = await s.scalar(select(func.count(Notification.id))
+                            .where(Notification.read_at.is_(None)))
     return {
+        "unread_alerts": unread,
         "ingesters": [{"key": r.key, "updated_at": r.updated_at.isoformat()} for r in rows],
         "bridges": [{"name": b.key.removeprefix("bridge."), **bridge_status.summarize(b.value)}
                     for b in sorted(bridges, key=lambda b: b.key)],
         "message_counts": counts,
     }
+
+
+# --- Notifications ---
+
+_MSG_OPTS = (selectinload(Notification.message).selectinload(Message.account),
+             selectinload(Notification.message).selectinload(Message.conversation),
+             selectinload(Notification.message).selectinload(Message.sender),
+             selectinload(Notification.message).selectinload(Message.attachments),
+             selectinload(Notification.message).selectinload(Message.triage))
+
+
+@app.get("/api/notifications", dependencies=[Auth])
+async def list_notifications(s: Session, limit: int = Query(50, le=200)) -> dict:
+    rows = (await s.scalars(select(Notification).order_by(Notification.created_at.desc())
+                            .limit(limit).options(*_MSG_OPTS))).all()
+    return {"notifications": [{
+        "id": n.id, "kind": n.kind, "created_at": n.created_at.isoformat(),
+        "read": n.read_at is not None, "delivery": n.delivery,
+        "message": _message_summary(n.message) if n.message else None,
+    } for n in rows]}
+
+
+class ReadIn(BaseModel):
+    ids: list[int] | None = None  # None: all
+
+
+@app.post("/api/notifications/read", dependencies=[Auth])
+async def mark_read(body: ReadIn, s: Session) -> dict:
+    stmt = update(Notification).where(Notification.read_at.is_(None)).values(read_at=func.now())
+    if body.ids is not None:
+        stmt = stmt.where(Notification.id.in_(body.ids))
+    res = await s.execute(stmt)
+    await s.commit()
+    return {"updated": res.rowcount}
 
 
 # --- Policy rules (user-managed only; agents never reach these endpoints) ---
