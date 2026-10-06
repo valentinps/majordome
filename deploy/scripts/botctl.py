@@ -4,11 +4,13 @@
 Usage (from the deploy directory on the server):
     ./scripts/botctl.py send whatsappbot "login phone"
     ./scripts/botctl.py read whatsappbot [count]
+    ./scripts/botctl.py send-secret discordbot login-token user   # prompts, then redacts
 
 Stdlib only. Talks to Synapse on 127.0.0.1:8008 as $MATRIX_USER from .env.
 Never sends read receipts or typing notifications.
 """
 
+import getpass
 import json
 import sys
 import time
@@ -76,13 +78,34 @@ def room_for(st: dict, bot: str) -> str:
     return st["rooms"][bot]
 
 
-def send(bot: str, text: str) -> None:
+def send(bot: str, text: str) -> str:
     st = state()
     room = urllib.parse.quote(room_for(st, bot))
     txn = str(int(time.time() * 1000))
-    api("PUT", f"/_matrix/client/v3/rooms/{room}/send/m.room.message/{txn}", st["token"],
-        {"msgtype": "m.text", "body": text})
+    res = api("PUT", f"/_matrix/client/v3/rooms/{room}/send/m.room.message/{txn}", st["token"],
+              {"msgtype": "m.text", "body": text})
     save(st)
+    return res["event_id"]
+
+
+def send_secret(bot: str, prefix: str) -> None:
+    """Prompt for a secret, send `<prefix> <secret>`, then redact the message once the bot read it."""
+    secret = ""
+    for _ in range(5):  # pasted text often starts with a line break: skip empty lines
+        secret = getpass.getpass("Secret (hidden): ").strip().strip("'\"").strip()
+        if secret:
+            break
+    if not secret:
+        sys.exit("empty secret, nothing sent")
+    print(f"got {len(secret)} characters")
+    event_id = send(bot, f"{prefix} {secret}")
+    time.sleep(5)
+    st = state()
+    room = urllib.parse.quote(st["rooms"][bot])
+    txn = str(int(time.time() * 1000))
+    api("PUT", f"/_matrix/client/v3/rooms/{room}/redact/{urllib.parse.quote(event_id)}/{txn}",
+        st["token"], {"reason": "secret"})
+    print("sent and redacted")
 
 
 def read(bot: str, count: int = 10) -> None:
@@ -102,6 +125,8 @@ if __name__ == "__main__":
     cmd, bot, *rest = sys.argv[1:]
     if cmd == "send":
         send(bot, " ".join(rest))
+    elif cmd == "send-secret":
+        send_secret(bot, " ".join(rest))
     elif cmd == "read":
         read(bot, int(rest[0]) if rest else 10)
     else:
