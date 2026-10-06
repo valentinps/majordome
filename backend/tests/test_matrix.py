@@ -184,3 +184,11 @@ def test_personal_filtering_space_is_not_a_portal():
         "channel": {"id": "__personal_filtering_space__"},
         "com.beeper.room_type.v2": "personal_filtering_space"}}, member(ME)], ME)
     assert not space.is_portal
+
+
+def test_bridge_name_suffix_is_removed():
+    room = room_info_from_state("!x:x", [
+        bridge_state(), member(ME), member(BOT), member(ALICE, "Alice (WA)"),
+        {"type": "m.room.name", "state_key": "", "content": {"name": "Alice (WA)"}},
+    ], ME)
+    assert room.title == "Alice" and room.members[ALICE] == "Alice"

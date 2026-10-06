@@ -90,6 +90,12 @@ def q(s: str) -> str:
 PROTOCOL_SOURCES = {"whatsapp": "whatsapp", "discordgo": "discord", "discord": "discord"}
 SOURCE_NAMES = {"whatsapp": "WhatsApp", "discord": "Discord"}
 MEDIA_TYPES = {"m.image", "m.file", "m.audio", "m.video"}
+# Network suffix some bridge name templates add (" (WA)"); the UI already shows the source.
+_NAME_SUFFIX = re.compile(r" \((WA|WhatsApp|Discord)\)$")
+
+
+def clean_name(name: str | None) -> str | None:
+    return _NAME_SUFFIX.sub("", name) if name else name
 
 
 @dataclass
@@ -125,7 +131,7 @@ def room_info_from_state(room_id: str, state: list[dict[str, Any]], own_mxid: st
     bridge = (by_type.get("m.bridge") or by_type.get("uk.half-shot.bridge") or [{}])[0].get(
         "content", {})
     members = {
-        ev["state_key"]: ev["content"].get("displayname")
+        ev["state_key"]: clean_name(ev["content"].get("displayname"))
         for ev in by_type.get("m.room.member", [])
         if ev["content"].get("membership") == "join"
     }
@@ -146,7 +152,7 @@ def room_info_from_state(room_id: str, state: list[dict[str, Any]], own_mxid: st
         if contact:
             self_ghosts = frozenset(m for m in others if m != contact)
 
-    name = (by_type.get("m.room.name") or [{}])[0].get("content", {}).get("name")
+    name = clean_name((by_type.get("m.room.name") or [{}])[0].get("content", {}).get("name"))
     if not name and contact:
         name = members[contact]
     is_dm = room_type == "dm" if room_type else len(others) <= 1
