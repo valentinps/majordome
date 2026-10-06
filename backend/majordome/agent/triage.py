@@ -54,8 +54,9 @@ waiting for an answer about something time-sensitive, an event happening today, 
 security alert about their own account, a delivery at the door); "digest" if worth reading \
 later today; "silent" for everything else (newsletters, promotions, routine automated notices, \
 spam, scams). Be conservative with "interrupt".
-- summary: one short neutral sentence, at most 160 characters, in the language of the message, \
-saying who wants what. No links, no codes, no instructions.
+- summary: one short neutral sentence, at most 160 characters, saying who wants what. Write it \
+in the same language as the message itself: a French message gets a French summary, an English \
+message an English one. No links, no codes, no instructions.
 - reason: at most 120 characters, why you chose this importance and scam_risk.
 
 Return exactly one result per message, using its "i" number."""
