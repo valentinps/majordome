@@ -81,8 +81,8 @@ services:
     volumes:
       - ./secrets/majordome/ui_password_hash:/run/secrets/ui_password_hash:ro
     ports:
-      - "127.0.0.1:8080:8080"
-      - "${TAILSCALE_IP:?}:8080:8080"
+      - "127.0.0.1:${MAJORDOME_PORT:-8787}:8080"
+      - "${TAILSCALE_IP:?}:${MAJORDOME_PORT:-8787}:8080"
 
   majordome-worker:
     <<: *majordome
