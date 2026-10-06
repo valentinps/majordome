@@ -40,24 +40,27 @@ def ev(content, sender=ALICE, etype="m.room.message", **extra):
 # --- endpoint allowlist: the client must stay silent -----------------------------------------
 
 @pytest.mark.parametrize("method,path", [
-    ("GET", "/_matrix/client/v3/sync"),
-    ("POST", "/_matrix/client/v3/login"),
-    ("POST", "/_matrix/client/v3/rooms/%21abc%3Ax/join"),
     ("GET", "/_matrix/client/v3/rooms/%21abc%3Ax/state"),
+    ("GET", "/_matrix/client/v1/media/download/majordome.internal/abc"),
 ])
 def test_allowed_endpoints(method, path):
     check_endpoint(method, path)
 
 
 @pytest.mark.parametrize("method,path", [
+    # Anything the user's account would *do* in a room makes bridges send read receipts.
+    ("POST", "/_matrix/client/v3/rooms/%21abc%3Ax/join"),
+    ("POST", "/_matrix/client/v3/join/%21abc%3Ax"),
     ("POST", "/_matrix/client/v3/rooms/%21abc%3Ax/receipt/m.read/%24ev"),
     ("POST", "/_matrix/client/v3/rooms/%21abc%3Ax/read_markers"),
     ("PUT", "/_matrix/client/v3/rooms/%21abc%3Ax/typing/%40me%3Ax"),
     ("PUT", "/_matrix/client/v3/presence/%40me%3Ax/status"),
     ("PUT", "/_matrix/client/v3/rooms/%21abc%3Ax/send/m.room.message/1"),
     ("PUT", "/_matrix/client/v3/rooms/%21abc%3Ax/state/m.room.name/"),
-    ("GET", "/_matrix/client/v3/sync/../rooms/%21a/receipt"),
-    ("POST", "/_matrix/client/v3/rooms/%21abc%3Ax/join/extra"),
+    ("POST", "/_matrix/client/v3/login"),
+    ("GET", "/_matrix/client/v3/sync"),
+    ("GET", "/_matrix/client/v3/rooms/%21abc%3Ax/state/../receipt"),
+    ("POST", "/_matrix/client/v3/rooms/%21abc%3Ax/state"),
 ])
 def test_forbidden_endpoints(method, path):
     with pytest.raises(ForbiddenEndpoint):

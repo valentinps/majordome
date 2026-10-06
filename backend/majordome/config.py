@@ -11,13 +11,15 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+asyncpg://majordome:majordome@localhost:5432/majordome"
 
-    # Matrix (bridged chat apps)
+    # Matrix (bridged chat apps): Majordome is a passive appservice, see ingest/matrix.py.
     matrix_homeserver: str = "http://synapse:8008"
     matrix_server_name: str = "majordome.internal"
-    matrix_user: str = "me"
-    matrix_password: str = ""
-    # Invites are auto-accepted only from users matching this regex (bridge bots and ghosts).
-    matrix_trusted_inviters: str = (
+    matrix_user: str = "me"  # the user's Matrix account (only used to recognise it)
+    matrix_as_token: str = ""
+    matrix_hs_token: str = ""
+    matrix_appservice_port: int = 8009
+    # Bridge bots and ghosts: the appservice namespace, and who room state is read as.
+    matrix_bridge_users: str = (
         r"^@(whatsappbot|discordbot|whatsapp_[^:]+|discord_[^:]+):majordome\.internal$"
     )
 

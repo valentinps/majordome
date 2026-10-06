@@ -187,7 +187,8 @@ async def list_conversations(s: Session, limit: int = Query(100, le=500)) -> dic
 
 @app.get("/api/health", dependencies=[Auth])
 async def health(s: Session) -> dict:
-    rows = (await s.scalars(select(SyncState).where(SyncState.key != "matrix.auth"))).all()
+    rows = (await s.scalars(select(SyncState).where(
+        SyncState.key.not_in(["matrix.self_ghosts"])))).all()
     counts = dict((await s.execute(
         select(Account.source, func.count(Message.id))
         .join(Message, Message.account_id == Account.id).group_by(Account.source)

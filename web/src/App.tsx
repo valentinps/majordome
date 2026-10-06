@@ -385,7 +385,7 @@ function Status({ health }: { health: Health | null }) {
 }
 
 function ingesterLabel(key: string): string {
-  if (key === 'matrix.sync') return 'Chats (WhatsApp, Discord)'
+  if (key === 'matrix.appservice') return 'Chats (WhatsApp, Discord)'
   const m = key.match(/^imap\.(.+)\.([^.]+)$/)
   return m ? m[1] : key
 }
