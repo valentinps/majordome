@@ -33,11 +33,11 @@ License: **AGPL-3.0**
 
 | Topic | Decision |
 |---|---|
-| Chat app ingestion | **Matrix + mautrix bridges** (WhatsApp, Discord to start). We don't write chat connectors. |
+| Chat app ingestion | **Matrix + mautrix bridges** (WhatsApp, Discord to start). We don't write chat connectors. Majordome reads them as a **passive appservice** (§4.1). |
 | Email ingestion | **Direct IMAP** (IDLE), not bridged. We keep headers (SPF/DKIM/Received) for scam detection. |
 | Android | **Kotlin notification forwarder** (`NotificationListenerService`), as a catch-all for apps without bridges. |
 | Backend | **Python** (FastAPI, SQLAlchemy 2, Alembic, mautrix-python). |
-| Web UI | **TypeScript** (React + Vite). The backend serves it as static files. |
+| Web UI | **TypeScript** (React + Vite + **HeroUI v3** / Tailwind v4). The backend serves it as static files; fonts are self-hosted. |
 | Database | **PostgreSQL + pgvector**, using Postgres full-text search. Postgres is also the job queue (no Redis). |
 | Homeserver | **Synapse** (reference implementation, best bridge compatibility). Federation is disabled. |
 | LLM | Provider abstraction per role. Dev uses **Claude Code headless with the user's subscription** (personal use only). API and local providers come later. |
@@ -90,17 +90,22 @@ License: **AGPL-3.0**
 ## 4. Ingestion
 
 ### 4.1 Matrix (bridged chat apps)
-- Majordome logs in as the **bridge owner Matrix user** (e.g. `@me:majordome.internal`). It
-  follows every portal room the bridges create.
-- **Bridge config**:
-  - Turn off end-to-end encryption in bridge rooms. The homeserver is private and data is protected at rest instead.
-  - Turn off presence and typing forwarding.
-  - Enable backfill for new messages only. History starts "from now".
-- **Majordome never sends read receipts, typing notifications, or presence.** Otherwise your
-  contacts would see "read" for messages you never saw. There will be an automated test for this.
-- Room metadata from the bridges (the network, the remote chat ID, the sender's remote ID) is
-  mapped onto the normalized model.
-- The listener checkpoints its sync token, so it can resume after a restart without losing or duplicating messages.
+- **Majordome never acts as the user on Matrix.** Any event the user's account sends into a portal
+  room, *including joining it*, makes mautrix-whatsapp send an implicit read receipt to WhatsApp.
+  That clears the notification on the phone. This was observed in production on 2026-10-06.
+- So Majordome registers as an **appservice with non-exclusive namespaces** covering the bridge
+  bots and ghosts. Synapse then pushes every event of every room those users are in, without anyone
+  joining. Room state is read with GET requests, masquerading as a bridge user who is already in the room.
+- The Matrix client has an **endpoint allowlist**: only reading room state and downloading media. Login,
+  sync, join, send, receipts, typing and presence are refused in code, and tests enforce this.
+- Bridge metadata is used directly:
+  - `com.beeper.room_type` tells DMs from groups.
+  - `fi.mau.receiver` identifies the bridge login, so multiple accounts stay separate.
+  - The user's own ghost, present in bridgev2 DMs, marks outgoing messages.
+- **Bridge config**: no end-to-end encryption in bridge rooms (the homeserver is private and data is
+  protected at rest instead), no presence, no backfill: history starts "from now".
+- Synapse retries a transaction that fails. Transactions are applied atomically and are idempotent,
+  using recent transaction ids plus a unique key per message.
 
 ### 4.2 Email (IMAP)
 - One IDLE connection per account, with periodic full sync as a fallback.
@@ -364,7 +369,7 @@ majordome/
 
 ## 13. Milestones
 
-### M0: Infrastructure and foundations
+### M0: Infrastructure and foundations ✅ (2026-10-06)
 - Repo, license, CI (lint, type check, tests).
 - Tailscale on the server, the PC, and the phone.
 - Compose stack on the server: Postgres, Synapse (no federation), mautrix-whatsapp, mautrix-discord.
@@ -374,12 +379,12 @@ majordome/
 - **Done when**: WhatsApp and Discord messages show up in Synapse rooms, and a sandboxed `claude -p`
   call returns valid JSON with no tools available.
 
-### M1: Ingestion and archive
+### M1: Ingestion and archive ✅ (2026-10-06; Outlook still to connect)
 - Matrix listener, IMAP IDLE for 2 accounts, normalized model, migrations.
 - Full-text search, basic web UI timeline and message detail, single-user auth.
 - **Done when**: messages from WhatsApp, Discord, and both mailboxes appear in one timeline and can be searched.
 
-### M2: Policy engine
+### M2: Policy engine ✅ (2026-10-06)
 - Storage, visibility, redaction, and retention rules, plus redactors and the "why?" view.
 - Rules editor with a preview, and a retention job.
 - Full unit and property test suite.
