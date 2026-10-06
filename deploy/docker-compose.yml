@@ -1,0 +1,90 @@
+# Majordome infrastructure stack (M0): Postgres, private Synapse homeserver, mautrix bridges.
+#
+# SECURITY: Docker-published ports bypass UFW. Every published port MUST bind to 127.0.0.1
+# or to the Tailscale IP (${BIND_IP}) — never 0.0.0.0.
+
+name: majordome
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      SYNAPSE_DB_PASSWORD: ${SYNAPSE_DB_PASSWORD:?}
+      WHATSAPP_DB_PASSWORD: ${WHATSAPP_DB_PASSWORD:?}
+      DISCORD_DB_PASSWORD: ${DISCORD_DB_PASSWORD:?}
+      MAJORDOME_DB_PASSWORD: ${MAJORDOME_DB_PASSWORD:?}
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+      - ./postgres/init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
+    ports:
+      - "${BIND_IP:-127.0.0.1}:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [internal]
+
+  synapse:
+    image: matrixdotorg/synapse:${SYNAPSE_VERSION:-latest}
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    volumes:
+      - ./data/synapse:/data
+    ports:
+      - "${BIND_IP:-127.0.0.1}:8008:8008"
+    networks: [internal]
+
+  mautrix-whatsapp:
+    image: dock.mau.dev/mautrix/whatsapp:${WHATSAPP_VERSION:-latest}
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    volumes:
+      - ./data/whatsapp:/data
+    networks: [internal]
+
+  mautrix-discord:
+    image: dock.mau.dev/mautrix/discord:${DISCORD_VERSION:-latest}
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    volumes:
+      - ./data/discord:/data
+    networks: [internal]
+
+  # --- LLM provider sandbox (claude_code provider; personal/dev use) ---
+  llm-proxy:
+    image: ubuntu/squid:latest
+    restart: unless-stopped
+    volumes:
+      - ./proxy/squid.conf:/etc/squid/squid.conf:ro
+    networks: [llm, egress]
+    profiles: [llm]
+
+  llm:
+    build: ./llm
+    restart: unless-stopped
+    env_file: [./secrets/llm.env]   # CLAUDE_CODE_OAUTH_TOKEN=...
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /home/node/.claude-isolated:uid=1000,gid=1000
+      - /home/node/work:uid=1000,gid=1000
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks: [llm]
+    profiles: [llm]
+
+networks:
+  internal:
+    name: majordome
+  llm:
+    name: majordome-llm
+    internal: true        # no route to the internet; only llm-proxy is reachable
+  egress:
+    name: majordome-egress

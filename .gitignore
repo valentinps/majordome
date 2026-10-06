@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+dist/
+
+# Secrets & runtime data — never commit
+.env
+*.env
+!*.env.example
+deploy/data/
+deploy/secrets/
+deploy/**/config.yaml
+deploy/**/registration.yaml
+deploy/**/homeserver.yaml
+*.signing.key
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
