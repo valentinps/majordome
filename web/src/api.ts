@@ -141,6 +141,9 @@ export const api = {
     call<{ rule: Rule; applied: ApplyStats }>(`/api/rules/${id}`, json('PUT', draft)),
   deleteRule: (id: number) => call<{ applied: ApplyStats }>(`/api/rules/${id}`, { method: 'DELETE' }),
   accounts: () => call<{ accounts: Account[] }>('/api/accounts'),
+  defaults: () => call<{ visibility: Visibility }>('/api/policy/defaults'),
+  setDefaults: (visibility: Visibility) =>
+    call<{ visibility: Visibility; applied: ApplyStats }>('/api/policy/defaults', json('PUT', { visibility })),
   lookup: (conversationIds: number[], senders: string[]) => {
     const p = new URLSearchParams()
     conversationIds.forEach((c) => p.append('conversation_ids', String(c)))

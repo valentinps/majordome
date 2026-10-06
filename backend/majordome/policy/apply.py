@@ -8,8 +8,25 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from majordome.policy.engine import Decision, Facts, Rule, agent_text, resolve
+from majordome.policy.engine import VISIBILITY, Decision, Facts, Rule, agent_text, resolve
+from majordome.store import db
 from majordome.store.models import Attachment, Message, PolicyRule
+
+DEFAULTS_KEY = "policy.defaults"
+# Out of the box the agent reads nothing: the user opens access with rules.
+FACTORY_DEFAULTS = {"visibility": "never"}
+
+
+async def load_defaults(s: AsyncSession) -> Decision:
+    stored = {**FACTORY_DEFAULTS, **(await db.get_state(s, DEFAULTS_KEY) or {})}
+    vis = stored["visibility"] if stored["visibility"] in VISIBILITY else "never"
+    return Decision(visibility=vis)
+
+
+async def save_defaults(s: AsyncSession, visibility: str) -> None:
+    if visibility not in VISIBILITY:
+        raise ValueError(visibility)
+    await db.set_state(s, DEFAULTS_KEY, {"visibility": visibility})
 
 # Raw payload fields kept for metadata-only messages (no content).
 _METADATA_RAW_KEYS = {"folder", "uid", "uidvalidity"}
@@ -69,6 +86,7 @@ async def reapply(s: AsyncSession, rules: list[Rule] | None = None, *, dry_run: 
     is saved and for the "this rule would affect N messages" preview in the UI.
     """
     rules = await load_rules(s) if rules is None else rules
+    defaults = await load_defaults(s)
     if preview is not None:
         rules = [r for r in rules if r.id != preview.id] + [preview]
     stats = ReapplyStats(samples=[] if preview else None)
@@ -84,7 +102,7 @@ async def reapply(s: AsyncSession, rules: list[Rule] | None = None, *, dry_run: 
         last_id = msgs[-1].id
         for m in msgs:
             stats.examined += 1
-            d = resolve(rules, facts_of(m))
+            d = resolve(rules, facts_of(m), defaults)
             if preview is not None and any(i == preview.id for i, _ in d.matched):
                 stats.matched += 1
                 if stats.samples is not None and len(stats.samples) < 5:

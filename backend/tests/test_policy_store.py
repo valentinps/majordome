@@ -32,13 +32,48 @@ def mail(ext, sender, body, subject="Hello", minutes=0, attach=False):
     )
 
 
-async def test_defaults_redact_for_the_agent_but_keep_the_original(s):
+async def test_agent_reads_nothing_by_default(s):
     mid = await store_message(s, mail("<1>", "no-reply@bank.fr", "Votre code est 482913"))
     await s.commit()
     m = await s.get(Message, mid)
     assert m.body_text == "Votre code est 482913"
-    assert m.body_agent == "Votre code est [OTP_CODE]"
-    assert m.visibility == "always" and m.policy["matched_rules"] == []
+    assert m.visibility == "never" and m.body_agent is None
+    assert m.policy["visibility_source"] == "default" and m.policy["matched_rules"] == []
+
+
+async def test_allow_rule_opens_access_redacted_and_never_rule_still_wins(s):
+    s.add_all([
+        PolicyRule(name="mail ok", matchers={"sources": ["email"]},
+                   outcomes={"visibility": "always"}),
+        PolicyRule(name="bank never", matchers={"sender_domains": ["bank.fr"]},
+                   outcomes={"visibility": "never"}),
+    ])
+    await s.flush()
+    ok = await store_message(s, mail("<a>", "shop@x.com", "Votre code est 482913"))
+    bank = await store_message(s, mail("<b>", "a@bank.fr", "Relevé"))
+    await s.commit()
+    m = await s.get(Message, ok)
+    assert m.visibility == "always" and m.body_agent == "Votre code est [OTP_CODE]"
+    assert m.policy["visibility_source"] == "rule"
+    assert (await s.get(Message, bank)).visibility == "never"
+
+
+async def test_changing_the_default_reapplies(s, monkeypatch):
+    await store_message(s, mail("<1>", "a@x.com", "hello"))
+    await s.commit()
+    from majordome.api.app import app
+    from majordome.config import settings
+
+    monkeypatch.setattr(settings(), "ui_password_hash", PasswordHasher().hash("correct horse"))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
+        await c.post("/api/login", json={"password": "correct horse"})
+        assert (await c.get("/api/policy/defaults")).json() == {"visibility": "never"}
+        res = await c.put("/api/policy/defaults", json={"visibility": "on_request"})
+        assert res.json()["applied"]["changed"] == 1
+        bad = await c.put("/api/policy/defaults", json={"visibility": "public"})
+        assert bad.status_code == 422
+    await s.close()
+    assert (await s.scalar(select(Message.visibility))) == "on_request"
 
 
 async def test_rules_at_ingestion(s):
@@ -101,7 +136,7 @@ async def test_rules_api_preview_save_and_delete(s, monkeypatch):
         assert prev["matched"] == 3 and prev["deleted"] == 3 and len(prev["samples"]) == 3
         assert await s.scalar(select(func.count(Message.id))) == 4  # dry run changed nothing
 
-        hide = {"name": "Hide friend", "matchers": {"senders": ["friend@x.com"]},
+        hide = {"name": "Friend on request", "matchers": {"senders": ["friend@x.com"]},
                 "outcomes": {"visibility": "on_request"}}
         created = (await c.post("/api/rules", json=hide)).json()
         assert created["applied"]["changed"] == 1

@@ -179,8 +179,13 @@ Each message has four independent outcomes:
 - A rule is **matchers → outcomes** and has a priority (used only for ordering in the UI).
 - **Matchers**: source, account, conversation, contact, sender identity, sender domain, keyword
   or regex in subject/body, has attachment, Android package, and boolean combinations of these.
-- **Conflict resolution: the most restrictive outcome wins** in each dimension, independently. Deny overrides allow, `never` beats `on_request`, and the shortest retention wins.
-- **Defaults**: `store`, `always`, the built-in redactors enabled, `forever`.
+- **Conflict resolution: the most restrictive outcome wins** in each dimension, independently.
+  Deny overrides allow, `never` beats `on_request`, and the shortest retention wins.
+- **Agent visibility uses an allowlist.** The default (factory setting: `never`) applies only when no
+  matching rule sets visibility. Rules open access to specific things, and between rules the strictest
+  still wins. Storage, redaction and retention treat the defaults as one more candidate, so rules can
+  only make them stricter.
+- **Defaults**: `store`, agent visibility `never` (user-configurable), the built-in redactors enabled, `forever`.
 - When a rule changes, existing messages are re-evaluated. Visibility is always resolved at access time anyway. Storage and retention changes become a background job.
 - Rules are managed **only through the web UI or API by the user**. Agents can never create or modify rules.
 - A **"why?" view** shows, for any message, which rules applied and what the outcome was.

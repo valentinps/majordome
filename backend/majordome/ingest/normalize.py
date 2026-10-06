@@ -13,7 +13,7 @@ from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from majordome.policy.apply import apply_decision, load_rules
+from majordome.policy.apply import apply_decision, load_defaults, load_rules
 from majordome.policy.engine import Facts, resolve
 from majordome.store.models import Account, Attachment, Conversation, Identity, Message
 
@@ -107,7 +107,7 @@ async def store_message(s: AsyncSession, msg: NormalizedMessage) -> int | None:
         conversation_kind=msg.conversation.kind,
         sender=msg.sender.external_id if msg.sender else None,
         subject=msg.subject, body=msg.body_text, has_attachment=bool(msg.attachments),
-    ))
+    ), await load_defaults(s))
     if decision.storage == "drop":
         return None
     shaped = Message(subject=msg.subject, body_text=msg.body_text, raw=msg.raw,

@@ -53,21 +53,32 @@ export const EMPTY_DRAFT: RuleDraft = { name: '', enabled: true, matchers: {}, o
 /* Rules page                                                                                  */
 /* ------------------------------------------------------------------------------------------ */
 
-export function RulesPage({ onError, onEdit, version }: {
+export function RulesPage({ onError, onEdit, onNotice, version }: {
   onError: (e: unknown) => void
   onEdit: (rule: Rule | null) => void
+  onNotice: (message: string) => void
   version: number
 }) {
   const [rules, setRules] = useState<Rule[] | null>(null)
   const [names, setNames] = useState<Names>(EMPTY_NAMES)
+  const [defaultVis, setDefaultVis] = useState<Visibility | null>(null)
 
   const load = useCallback(async () => {
     try {
-      const { rules } = await api.rules()
+      const [{ rules }, defaults] = await Promise.all([api.rules(), api.defaults()])
       setRules(rules)
+      setDefaultVis(defaults.visibility)
       setNames(await lookupNames(rules.map((r) => r.matchers)))
     } catch (e) { onError(e) }
   }, [onError])
+
+  async function changeDefault(v: Visibility) {
+    setDefaultVis(v)
+    try {
+      const res = await api.setDefaults(v)
+      onNotice(`Default changed to “${VISIBILITY_TEXT[v].short}”. ${summarizeApplied(res.applied)}`)
+    } catch (e) { onError(e) }
+  }
 
   useEffect(() => { load() }, [load, version])
 
@@ -87,9 +98,27 @@ export function RulesPage({ onError, onEdit, version }: {
         </div>
         <p className="mb-6 text-[var(--muted)]">
           Rules decide what Majordome keeps, what its agent may read, and for how long. When several
-          rules match a message, the strictest choice wins, so a new rule can only make things more private.
-          One-time codes, card numbers, IBANs, passwords and login links are always hidden from the agent.
+          rules match a message, the strictest choice wins. Even when the agent may read a message,
+          one-time codes, card numbers, IBANs, passwords and login links are hidden from it.
         </p>
+
+        {defaultVis && (
+          <Card className="mb-6 border border-[var(--border)] bg-[var(--surface)] p-1">
+            <div className="p-3">
+              <RadioGroup value={defaultVis} onChange={(v) => changeDefault(v as Visibility)}>
+                <Label className="font-bold">What the agent may read when no rule says otherwise</Label>
+                {(['always', 'on_request', 'on_request_approval', 'never'] as Visibility[]).map((v) => (
+                  <Choice key={v} value={v} description={VISIBILITY_TEXT[v].long}>{VISIBILITY_TEXT[v].short}</Choice>
+                ))}
+              </RadioGroup>
+              {defaultVis === 'never' && (
+                <p className="mt-3 text-sm text-[var(--muted)]">
+                  The agent reads nothing until a rule allows it, for example “WhatsApp direct messages: agent can read”.
+                </p>
+              )}
+            </div>
+          </Card>
+        )}
 
         {rules === null && <Spinner />}
         {rules?.length === 0 && (
@@ -268,8 +297,8 @@ export function RuleEditor({ rule, initial, onClose, onSaved, onError }: {
               <RadioGroup value={draft.outcomes.visibility ?? 'unchanged'}
                 onChange={(v) => setO({ visibility: v === 'unchanged' ? undefined : v as Visibility })}>
                 <Label>What the agent may read</Label>
-                <Choice value="unchanged" description="Other rules decide.">No change</Choice>
-                {(['on_request', 'on_request_approval', 'never'] as Visibility[]).map((v) => (
+                <Choice value="unchanged" description="Other rules, or your default, decide.">No change</Choice>
+                {(['always', 'on_request', 'on_request_approval', 'never'] as Visibility[]).map((v) => (
                   <Choice key={v} value={v} description={VISIBILITY_TEXT[v].long}>{VISIBILITY_TEXT[v].short}</Choice>
                 ))}
               </RadioGroup>

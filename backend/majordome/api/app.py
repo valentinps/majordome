@@ -17,7 +17,7 @@ from sqlalchemy.orm import selectinload
 
 from majordome.config import settings
 from majordome.ingest import bridge_status
-from majordome.policy.apply import reapply
+from majordome.policy.apply import load_defaults, reapply, save_defaults
 from majordome.policy.engine import Rule, validate
 from majordome.policy.redact import BUILTIN
 from majordome.store import db
@@ -295,6 +295,26 @@ async def delete_rule(rule_id: int, s: Session) -> dict:
     stats = await reapply(s)  # what was hidden or redacted only by this rule becomes visible
     await s.commit()
     return {"applied": _stats(stats)}
+
+
+class DefaultsIn(BaseModel):
+    visibility: str
+
+
+@app.get("/api/policy/defaults", dependencies=[Auth])
+async def get_defaults(s: Session) -> dict:
+    return {"visibility": (await load_defaults(s)).visibility}
+
+
+@app.put("/api/policy/defaults", dependencies=[Auth])
+async def put_defaults(body: DefaultsIn, s: Session) -> dict:
+    try:
+        await save_defaults(s, body.visibility)
+    except ValueError as e:
+        raise HTTPException(422, {"errors": ["Unknown agent access choice."]}) from e
+    stats = await reapply(s)
+    await s.commit()
+    return {"visibility": body.visibility, "applied": _stats(stats)}
 
 
 @app.get("/api/accounts", dependencies=[Auth])

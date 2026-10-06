@@ -60,6 +60,15 @@ def test_strictest_outcome_wins_per_dimension():
     assert resolve(rules, CHAT).storage == "drop"
 
 
+def test_default_is_a_fallback_for_visibility_only():
+    defaults = Decision(visibility="never", retention_days=90)
+    assert resolve([], MAIL, defaults).visibility == "never"
+    allow = rule(1, "mail", sources=["email"], visibility="always", retention_days=365)
+    d = resolve([allow], MAIL, defaults)
+    assert d.visibility == "always" and d.visibility_from_rule
+    assert d.retention_days == 90  # storage/retention: defaults still count, strictest wins
+
+
 def test_agent_text_respects_visibility_and_storage():
     assert agent_text(Decision(visibility="never"), "hello") is None
     assert agent_text(Decision(storage="metadata_only"), "hello") is None
@@ -114,12 +123,18 @@ rule_st = st.builds(
 
 
 @settings(max_examples=400, deadline=None)
-@given(st.lists(rule_st, max_size=5), rule_st, facts_st)
-def test_adding_a_rule_never_exposes_more(rules, extra, facts):
-    before = resolve(rules, facts)
-    after = resolve([*rules, extra], facts)
+@given(st.lists(rule_st, max_size=5), rule_st, facts_st, st.sampled_from(VISIBILITY))
+def test_adding_a_rule_never_exposes_more(rules, extra, facts, default_vis):
+    defaults = Decision(visibility=default_vis)
+    before = resolve(rules, facts, defaults)
+    after = resolve([*rules, extra], facts, defaults)
     assert STORAGE.index(after.storage) >= STORAGE.index(before.storage)
-    assert VISIBILITY.index(after.visibility) >= VISIBILITY.index(before.visibility)
+    # Visibility: the default is a fallback (an allow rule may open access where only the
+    # default applied), but once rules decide, a new rule can only make it stricter.
+    if before.visibility_from_rule or not extra.outcomes.get("visibility"):
+        assert VISIBILITY.index(after.visibility) >= VISIBILITY.index(before.visibility)
+    else:
+        assert after.visibility == extra.outcomes["visibility"] or not matches(extra, facts)
     assert after.redactors >= before.redactors
     assert set(after.patterns) >= set(before.patterns)
     if before.retention_days is not None:

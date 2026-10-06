@@ -1,8 +1,15 @@
 """Policy engine: deterministic rules deciding storage, agent visibility, redaction, retention.
 
-Plain code, no LLM. Every dimension is resolved independently and the most restrictive outcome
-among matching rules wins, so adding a rule can never expose more than before (property-tested).
-Agents never create or modify rules: rules come from the user through the UI/API only.
+Plain code, no LLM. Every dimension is resolved independently:
+
+- storage, redaction, retention: the most restrictive outcome among matching rules *and the
+  defaults* wins, so a rule can only make these stricter.
+- agent visibility: the most restrictive outcome among matching rules that set it wins; the
+  user's default applies only when no matching rule sets it. This lets the default be "never"
+  while rules grant access to specific things (an allowlist). Between rules, strictest still
+  wins: a "never" rule always beats an "agent can read" rule.
+
+Both properties are tested. Agents never create or modify rules: they come from the user only.
 """
 
 import re
@@ -59,11 +66,13 @@ class Decision:
     patterns: tuple[str, ...] = ()
     retention_days: int | None = None  # None: keep forever
     matched: tuple[tuple[int, str], ...] = field(default_factory=tuple)
+    visibility_from_rule: bool = False  # False: the user's default applied
 
     def explain(self) -> dict[str, Any]:
         return {
             "storage": self.storage,
             "visibility": self.visibility,
+            "visibility_source": "rule" if self.visibility_from_rule else "default",
             "redactors": sorted(self.redactors),
             "patterns": list(self.patterns),
             "retention_days": self.retention_days,
@@ -149,11 +158,13 @@ def resolve(rules: list[Rule], f: Facts, defaults: Decision | None = None) -> De
     days = [r.outcomes["retention_days"] for r in hits if r.outcomes.get("retention_days")]
     if base.retention_days:
         days.append(base.retention_days)
+    rule_visibility = [r.outcomes["visibility"] for r in hits if r.outcomes.get("visibility")]
     return Decision(
         storage=_strictest(STORAGE, [r.outcomes["storage"] for r in hits
                                      if r.outcomes.get("storage")], base.storage),
-        visibility=_strictest(VISIBILITY, [r.outcomes["visibility"] for r in hits
-                                           if r.outcomes.get("visibility")], base.visibility),
+        visibility=(max(rule_visibility, key=VISIBILITY.index) if rule_visibility
+                    else base.visibility),
+        visibility_from_rule=bool(rule_visibility),
         redactors=base.redactors.union(*(frozenset(r.outcomes.get("redact", [])) for r in hits)),
         patterns=tuple(dict.fromkeys(
             [*base.patterns, *(p for r in hits for p in r.outcomes.get("redact_patterns", []))])),

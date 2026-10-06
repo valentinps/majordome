@@ -243,7 +243,8 @@ function Inbox({ onSignedOut }: { onSignedOut: () => void }) {
       )}
       {view === 'rules' && (
         <div className="flex flex-1 lg:col-span-2">
-          <RulesPage onError={handle} onEdit={(r) => openEditor(r)} version={rulesVersion} />
+          <RulesPage onError={handle} onEdit={(r) => openEditor(r)} version={rulesVersion}
+            onNotice={(msg) => { setNotice(msg); load() }} />
         </div>
       )}
 
@@ -406,7 +407,7 @@ function PolicyPanel({ m, onMakeRule }: { m: MessageDetail; onMakeRule: () => vo
       <p className="mt-3 text-sm">
         {rules.length
           ? <>Because of {rules.length === 1 ? 'the rule' : 'the rules'} {rules.map((r) => `“${r.name}”`).join(', ')}.</>
-          : <>No rule applies: the defaults are used.</>}
+          : <>No rule sets this, so your default applies (change it on the Rules page).</>}
         {m.expires_at && <> It will be deleted on {new Date(m.expires_at).toLocaleDateString()}.</>}
       </p>
       {m.visibility !== 'never' && m.agent_view !== null && m.agent_view !== m.body && (
