@@ -32,7 +32,7 @@ RESULT=$(echo "$OUT" | jq -c 'select(.type=="result")' | tail -1)
 [ -n "$INIT" ] || fail "no init event"
 echo "init.tools       = $(echo "$INIT" | jq -c .tools)"
 echo "init.mcp_servers = $(echo "$INIT" | jq -c .mcp_servers)"
-echo "$INIT" | jq -e '(.tools | length) == 0' >/dev/null || fail "tools are available"
+echo "$INIT" | jq -e '(.tools - ["StructuredOutput"] | length) == 0' >/dev/null || fail "tools other than StructuredOutput are available"
 echo "$INIT" | jq -e '(.mcp_servers | length) == 0' >/dev/null || fail "MCP servers are available"
 echo "$OUT" | jq -e 'select(.type=="assistant") | .message.content[] | select(.type=="tool_use" and .name != "StructuredOutput")' >/dev/null \
   && fail "model attempted a tool call"
