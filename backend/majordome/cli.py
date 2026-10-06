@@ -65,11 +65,29 @@ def email_auth(address: str) -> None:
     oauth.device_login(settings(), acc.address, acc.client_id)
 
 
+def reapply_policy() -> None:
+    """Re-evaluate every stored message against the current rules (e.g. after an upgrade)."""
+    import asyncio
+
+    from majordome.policy.apply import reapply
+    from majordome.store import db
+
+    async def run() -> None:
+        async with db.session() as s:
+            st = await reapply(s)
+            await s.commit()
+        print(f"Examined {st.examined}, updated {st.changed}, emptied {st.wiped}, "
+              f"deleted {st.deleted}.")
+
+    asyncio.run(run())
+
+
 def main() -> None:
     p = argparse.ArgumentParser(prog="majordome")
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("set-password", help="set the web UI password")
     sub.add_parser("add-email", help="add or replace an email account")
+    sub.add_parser("reapply-policy", help="re-evaluate stored messages against the rules")
     ea = sub.add_parser("email-auth", help="sign in to an Outlook account (OAuth)")
     ea.add_argument("address")
     args = p.parse_args()
@@ -77,6 +95,8 @@ def main() -> None:
         set_password()
     elif args.cmd == "add-email":
         add_email()
+    elif args.cmd == "reapply-policy":
+        reapply_policy()
     else:
         email_auth(args.address)
 

@@ -15,7 +15,8 @@ import {
   TextField,
 } from '@heroui/react'
 import { api, Unauthorized } from './api'
-import type { Health, MessageDetail, MessageSummary, Source } from './api'
+import type { Health, MessageDetail, MessageSummary, Rule, RuleDraft, Source } from './api'
+import { EMPTY_DRAFT, RuleEditor, RulesPage, VISIBILITY_TEXT, draftFromMessage } from './Rules'
 
 const ALL = 'all'
 const SOURCES: { id: string; label: string }[] = [
@@ -94,6 +95,10 @@ function Inbox({ onSignedOut }: { onSignedOut: () => void }) {
   const [selected, setSelected] = useState<number | null>(null)
   const [health, setHealth] = useState<Health | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [view, setView] = useState<'inbox' | 'rules'>('inbox')
+  const [editor, setEditor] = useState<{ rule: Rule | null; initial: RuleDraft } | null>(null)
+  const [rulesVersion, setRulesVersion] = useState(0)
+  const [notice, setNotice] = useState<string | null>(null)
   const sourceFilter: Source | null = source === ALL ? null : source
 
   const handle = useCallback((err: unknown) => {
@@ -143,7 +148,9 @@ function Inbox({ onSignedOut }: { onSignedOut: () => void }) {
   }
 
   const days = useMemo(() => groupByDay(messages), [messages])
-  const reading = selected !== null
+  const reading = selected !== null && view === 'inbox'
+  const openEditor = useCallback((rule: Rule | null, initial?: RuleDraft) =>
+    setEditor({ rule, initial: rule ?? initial ?? EMPTY_DRAFT }), [])
 
   return (
     <div className="flex h-full flex-col md:grid md:grid-cols-[200px_1fr] lg:grid-cols-[220px_minmax(320px,440px)_1fr]">
@@ -151,9 +158,9 @@ function Inbox({ onSignedOut }: { onSignedOut: () => void }) {
       <aside className={`rail flex flex-wrap items-center gap-3 bg-[var(--livery)] px-4 py-3 text-[var(--livery-ink)]
         md:flex-col md:flex-nowrap md:items-stretch md:gap-7 md:overflow-y-auto md:px-3.5 md:py-6 ${reading ? 'max-md:hidden' : ''}`}>
         <h1 className="wordmark px-2.5 text-2xl md:text-[1.75rem]">Majordome</h1>
-        <ListBox aria-label="Sources" selectionMode="single" disallowEmptySelection
-          selectedKeys={[source]}
-          onSelectionChange={(keys) => { const k = [...keys][0]; if (k) { setSource(String(k)); setSelected(null) } }}
+        <ListBox aria-label="Sources" selectionMode="single"
+          selectedKeys={view === 'rules' ? [] : [source]}
+          onSelectionChange={(keys) => { const k = [...keys][0]; if (k) { setSource(String(k)); setSelected(null); setView('inbox') } }}
           className="flex gap-1 overflow-x-auto bg-transparent p-0 md:grid md:gap-0.5">
           {SOURCES.map((s) => (
             <ListBox.Item key={s.id} id={s.id} textValue={s.label}
@@ -163,6 +170,13 @@ function Inbox({ onSignedOut }: { onSignedOut: () => void }) {
             </ListBox.Item>
           ))}
         </ListBox>
+        <button type="button" aria-current={view === 'rules' ? 'page' : undefined}
+          onClick={() => setView((v) => (v === 'rules' ? 'inbox' : 'rules'))}
+          className={`rounded-md px-2.5 py-1.5 text-left hover:text-[var(--livery-ink)] ${view === 'rules'
+            ? 'bg-white/10 text-[var(--livery-ink)] shadow-[inset_3px_0_0_var(--accent)]'
+            : 'text-[var(--livery-muted)]'}`}>
+          Rules
+        </button>
         <Status health={health} />
         <Button variant="ghost" size="sm" onPress={() => { api.logout().finally(onSignedOut) }}
           className="mt-auto self-start text-[var(--livery-muted)] max-md:hidden">
@@ -172,7 +186,7 @@ function Inbox({ onSignedOut }: { onSignedOut: () => void }) {
 
       {/* Timeline */}
       <section aria-label="Messages"
-        className={`timeline flex-1 overflow-y-auto border-[var(--border)] pb-6 md:border-r ${reading ? 'max-lg:hidden' : ''}`}>
+        className={`timeline flex-1 overflow-y-auto border-[var(--border)] pb-6 md:border-r ${reading ? 'max-lg:hidden' : ''} ${view === 'rules' ? 'hidden' : ''}`}>
         <form role="search" className="sticky top-0 z-10 bg-[var(--background)] p-4"
           onSubmit={(e) => { e.preventDefault(); setAppliedQuery(query.trim()) }}>
           <SearchField aria-label="Search messages" value={query} fullWidth
@@ -222,8 +236,30 @@ function Inbox({ onSignedOut }: { onSignedOut: () => void }) {
         )}
       </section>
 
-      <Reader id={selected} onBack={() => setSelected(null)} onError={handle}
-        className={reading ? 'flex-1' : 'max-lg:hidden'} />
+      {view === 'inbox' && (
+        <Reader id={selected} onBack={() => setSelected(null)} onError={handle} version={rulesVersion}
+          onMakeRule={(m) => openEditor(null, draftFromMessage(m))}
+          className={reading ? 'flex-1' : 'max-lg:hidden'} />
+      )}
+      {view === 'rules' && (
+        <div className="flex flex-1 lg:col-span-2">
+          <RulesPage onError={handle} onEdit={(r) => openEditor(r)} version={rulesVersion} />
+        </div>
+      )}
+
+      {editor && (
+        <RuleEditor rule={editor.rule} initial={editor.initial} onError={handle}
+          onClose={() => setEditor(null)}
+          onSaved={(msg) => { setEditor(null); setNotice(msg); setRulesVersion((v) => v + 1); load() }} />
+      )}
+      {notice && (
+        <div role="status" className="fixed bottom-4 left-1/2 z-50 w-[min(560px,calc(100%-32px))] -translate-x-1/2">
+          <Alert status="success" className="border border-[var(--border)] bg-[var(--surface-secondary)] shadow-lg">
+            <Alert.Content><Alert.Description>{notice}</Alert.Description></Alert.Content>
+            <Button size="sm" variant="ghost" onPress={() => setNotice(null)}>Dismiss</Button>
+          </Alert>
+        </div>
+      )}
     </div>
   )
 }
@@ -250,6 +286,9 @@ function MessageRow({ m }: { m: MessageSummary }) {
       <span className="flex min-w-0 items-center gap-2 text-xs text-[var(--muted)]">
         <SourceChip source={m.source} account={m.account} />
         {m.conversation_kind !== 'dm' && m.conversation && <span className="truncate">{m.conversation}</span>}
+        {m.visibility && m.visibility !== 'always' && (
+          <span className="ml-auto shrink-0">{VISIBILITY_TEXT[m.visibility].short}</span>
+        )}
       </span>
       {m.subject && <span className="truncate text-[0.95rem]">{m.subject}</span>}
       <span className={`line-clamp-2 text-sm text-[var(--muted)] [overflow-wrap:anywhere] ${m.deleted ? 'line-through' : ''}`}>
@@ -260,8 +299,9 @@ function MessageRow({ m }: { m: MessageSummary }) {
   )
 }
 
-function Reader({ id, onBack, onError, className }: {
-  id: number | null; onBack: () => void; onError: (e: unknown) => void; className: string
+function Reader({ id, onBack, onError, onMakeRule, className, version }: {
+  id: number | null; onBack: () => void; onError: (e: unknown) => void
+  onMakeRule: (m: MessageDetail) => void; className: string; version: number
 }) {
   const [m, setM] = useState<MessageDetail | null>(null)
   const ref = useRef<HTMLElement>(null)
@@ -270,7 +310,7 @@ function Reader({ id, onBack, onError, className }: {
     setM(null)
     if (id === null) return
     api.message(id).then((d) => { setM(d); ref.current?.focus() }).catch(onError)
-  }, [id, onError])
+  }, [id, onError, version])
 
   if (id === null) {
     return (
@@ -309,7 +349,9 @@ function Reader({ id, onBack, onError, className }: {
           </header>
 
           <div className="whitespace-pre-wrap leading-relaxed [overflow-wrap:anywhere]">
-            {m.body ?? <em>No text content.</em>}
+            {m.metadata_only
+              ? <em className="text-[var(--muted)]">A rule keeps only who sent this and when, not its content.</em>
+              : m.body ?? <em>No text content.</em>}
           </div>
 
           {m.attachment_list.length > 0 && (
@@ -322,6 +364,8 @@ function Reader({ id, onBack, onError, className }: {
               ))}
             </ul>
           )}
+
+          <PolicyPanel m={m} onMakeRule={() => onMakeRule(m)} />
 
           {m.edits.length > 0 && (
             <Section title="Earlier versions">
@@ -343,6 +387,34 @@ function Reader({ id, onBack, onError, className }: {
         </div>
       )}
     </article>
+  )
+}
+
+function PolicyPanel({ m, onMakeRule }: { m: MessageDetail; onMakeRule: () => void }) {
+  const rules = m.policy.matched_rules ?? []
+  const v = VISIBILITY_TEXT[m.visibility]
+  return (
+    <section aria-label="How Majordome handles this message"
+      className="mt-8 rounded-lg border border-[var(--border)] p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="font-bold">{v.short}</h3>
+          <p className="text-sm text-[var(--muted)]">{v.long}</p>
+        </div>
+        <Button size="sm" variant="secondary" onPress={onMakeRule}>Make a rule from this message</Button>
+      </div>
+      <p className="mt-3 text-sm">
+        {rules.length
+          ? <>Because of {rules.length === 1 ? 'the rule' : 'the rules'} {rules.map((r) => `“${r.name}”`).join(', ')}.</>
+          : <>No rule applies: the defaults are used.</>}
+        {m.expires_at && <> It will be deleted on {new Date(m.expires_at).toLocaleDateString()}.</>}
+      </p>
+      {m.visibility !== 'never' && m.agent_view !== null && m.agent_view !== m.body && (
+        <Section title="What the agent sees">
+          <p className="whitespace-pre-wrap text-sm [overflow-wrap:anywhere]">{m.agent_view}</p>
+        </Section>
+      )}
+    </section>
   )
 }
 
