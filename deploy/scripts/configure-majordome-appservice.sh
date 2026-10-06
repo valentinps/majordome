@@ -11,7 +11,7 @@ for k in MAJORDOME_AS_TOKEN MAJORDOME_HS_TOKEN; do
   grep -q "^$k=" .env || echo "$k=$(openssl rand -hex 32)" >> .env
 done
 source .env
-DOMAIN_RE="${SERVER_NAME//./\\.}"
+DOMAIN_RE="${SERVER_NAME//./\\.}"  # e.g. majordome\.internal (single-quoted YAML below)
 
 cat > data/synapse/appservices/majordome.yaml <<YAML
 id: majordome
@@ -23,10 +23,10 @@ rate_limited: false
 receive_ephemeral: false
 namespaces:
   users:
-    - { exclusive: false, regex: "@whatsappbot:${DOMAIN_RE}" }
-    - { exclusive: false, regex: "@whatsapp_.*:${DOMAIN_RE}" }
-    - { exclusive: false, regex: "@discordbot:${DOMAIN_RE}" }
-    - { exclusive: false, regex: "@discord_.*:${DOMAIN_RE}" }
+    - { exclusive: false, regex: '@whatsappbot:${DOMAIN_RE}' }
+    - { exclusive: false, regex: '@whatsapp_.*:${DOMAIN_RE}' }
+    - { exclusive: false, regex: '@discordbot:${DOMAIN_RE}' }
+    - { exclusive: false, regex: '@discord_.*:${DOMAIN_RE}' }
   aliases: []
   rooms: []
 YAML
